@@ -1,0 +1,524 @@
+[
+  {
+    "ContainingType": "LyraSAT.Controllers.AdminController",
+    "Method": "GetClasses",
+    "RelativePath": "api/Admin/classes",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "LyraSAT.Controllers.AdminController",
+    "Method": "AddStudentToClass",
+    "RelativePath": "api/Admin/classes/{classCode}/add-student",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "classCode",
+        "Type": "System.String",
+        "IsRequired": true
+      },
+      {
+        "Name": "dto",
+        "Type": "LyraSAT.Controllers.AdminController\u002BAddStudentToClassDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "LyraSAT.Controllers.AdminController",
+    "Method": "GetAvailableStudents",
+    "RelativePath": "api/Admin/classes/{classCode}/available-students",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "classCode",
+        "Type": "System.String",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "LyraSAT.Controllers.AdminController",
+    "Method": "GetStudentsByClass",
+    "RelativePath": "api/Admin/classes/{classCode}/students",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "classCode",
+        "Type": "System.String",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "LyraSAT.Controllers.AdminController",
+    "Method": "DeleteClass",
+    "RelativePath": "api/Admin/classes/{id}",
+    "HttpMethod": "DELETE",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Int32",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "LyraSAT.Controllers.AdminController",
+    "Method": "AssignTeacher",
+    "RelativePath": "api/Admin/classes/{id}/assign-teacher",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Int32",
+        "IsRequired": true
+      },
+      {
+        "Name": "dto",
+        "Type": "LyraSAT.Controllers.AdminController\u002BAssignTeacherDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "LyraSAT.Controllers.AdminController",
+    "Method": "CreateClass",
+    "RelativePath": "api/Admin/classes/create",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "dto",
+        "Type": "LyraSAT.Controllers.CreateClassDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "LyraSAT.Controllers.AdminController",
+    "Method": "GetTeachers",
+    "RelativePath": "api/Admin/teachers",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "LyraSAT.Controllers.AdminController",
+    "Method": "CreateUser",
+    "RelativePath": "api/Admin/users/create",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "dto",
+        "Type": "LyraSAT.Controllers.CreateUserDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "LyraSAT.Controllers.AuthController",
+    "Method": "Login",
+    "RelativePath": "api/Auth/login",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "model",
+        "Type": "LyraSAT.Controllers.LoginDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "LyraSAT.Controllers.AuthController",
+    "Method": "Register",
+    "RelativePath": "api/Auth/register",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "model",
+        "Type": "LyraSAT.Controllers.RegisterDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "LyraSAT.Controllers.AuthController",
+    "Method": "UpdateProfile",
+    "RelativePath": "api/Auth/update-profile",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "model",
+        "Type": "LyraSAT.Controllers.UpdateProfileDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "LyraSAT.Controllers.ClassesController",
+    "Method": "GetTeacherClasses",
+    "RelativePath": "api/Classes/teacher-classes",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "email",
+        "Type": "System.String",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "LyraSAT.Controllers.SubmissionsController",
+    "Method": "SubmitTest",
+    "RelativePath": "api/Submissions",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "model",
+        "Type": "LyraSAT.Controllers.SubmitDto",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "LyraSAT.Controllers.SubmissionsController",
+    "Method": "ReviewSubmission",
+    "RelativePath": "api/Submissions/{submissionId}/review",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "submissionId",
+        "Type": "System.Int32",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "LyraSAT.Controllers.SubmissionsController",
+    "Method": "GetStudentHistory",
+    "RelativePath": "api/Submissions/history/{studentId}",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "studentId",
+        "Type": "System.Int32",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "LyraSAT.Controllers.TestsController",
+    "Method": "GetTestDetail",
+    "RelativePath": "api/Tests/{id}",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Int32",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "LyraSAT.Controllers.TestsController",
+    "Method": "GetTestQuestions",
+    "RelativePath": "api/Tests/{id}/questions",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Int32",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "LyraSAT.Controllers.TestsController",
+    "Method": "CheckStudentAttempts",
+    "RelativePath": "api/Tests/{testId}/check-attempts/{studentId}",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "testId",
+        "Type": "System.Int32",
+        "IsRequired": true
+      },
+      {
+        "Name": "studentId",
+        "Type": "System.String",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "LyraSAT.Controllers.TestsController",
+    "Method": "GetTestSubmissions",
+    "RelativePath": "api/Tests/{testId}/submissions",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "testId",
+        "Type": "System.Int32",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "LyraSAT.Controllers.TestsController",
+    "Method": "GetTestsByClass",
+    "RelativePath": "api/Tests/class/{classCode}",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "classCode",
+        "Type": "System.String",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "LyraSAT.Controllers.TestsController",
+    "Method": "GetTestResultsByClass",
+    "RelativePath": "api/Tests/class/{classCode}/results",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "classCode",
+        "Type": "System.String",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "LyraSAT.Controllers.TestsController",
+    "Method": "GetStudentsByClass",
+    "RelativePath": "api/Tests/class/{classCode}/students",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "classCode",
+        "Type": "System.String",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "LyraSAT.Controllers.TestsController",
+    "Method": "CreateTest",
+    "RelativePath": "api/Tests/create",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "model",
+        "Type": "LyraSAT.Models.Test",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "LyraSAT.Controllers.TestsController",
+    "Method": "UploadTest",
+    "RelativePath": "api/Tests/upload-test",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "title",
+        "Type": "System.String",
+        "IsRequired": false
+      },
+      {
+        "Name": "classCode",
+        "Type": "System.String",
+        "IsRequired": false
+      },
+      {
+        "Name": "duration",
+        "Type": "System.Int32",
+        "IsRequired": false
+      },
+      {
+        "Name": "testType",
+        "Type": "System.String",
+        "IsRequired": false
+      },
+      {
+        "Name": "deadline",
+        "Type": "System.Nullable\u00601[[System.DateTime, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "IsRequired": false
+      },
+      {
+        "Name": "maxAttempts",
+        "Type": "System.Nullable\u00601[[System.Int32, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "IsRequired": false
+      },
+      {
+        "Name": "file",
+        "Type": "Microsoft.AspNetCore.Http.IFormFile",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "LyraSAT.Controllers.VocabulariesController",
+    "Method": "CreateVocabulary",
+    "RelativePath": "api/Vocabularies",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "vocab",
+        "Type": "LyraSAT.Models.Vocabulary",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "LyraSAT.Controllers.VocabulariesController",
+    "Method": "GetVocabSeriesByClass",
+    "RelativePath": "api/Vocabularies/class/{classCode}/series",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "classCode",
+        "Type": "System.String",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "LyraSAT.Controllers.VocabulariesController",
+    "Method": "GetVocabulariesByClassAndSeries",
+    "RelativePath": "api/Vocabularies/class/{classCode}/series/{seriesName}",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "classCode",
+        "Type": "System.String",
+        "IsRequired": true
+      },
+      {
+        "Name": "seriesName",
+        "Type": "System.String",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "LyraSAT.Controllers.VocabulariesController",
+    "Method": "GetAllClasses",
+    "RelativePath": "api/Vocabularies/classes",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "LyraSAT.Controllers.VocabulariesController",
+    "Method": "UploadVocabFile",
+    "RelativePath": "api/Vocabularies/upload-vocab-file",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "seriesName",
+        "Type": "System.String",
+        "IsRequired": false
+      },
+      {
+        "Name": "classCode",
+        "Type": "System.String",
+        "IsRequired": false
+      },
+      {
+        "Name": "file",
+        "Type": "Microsoft.AspNetCore.Http.IFormFile",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": []
+  }
+]

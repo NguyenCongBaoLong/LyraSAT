@@ -1,0 +1,6 @@
+@LyraSAT_HostAddress = http://localhost:5029
+
+GET {{LyraSAT_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
