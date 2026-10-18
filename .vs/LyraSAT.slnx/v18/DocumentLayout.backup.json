@@ -3,6 +3,10 @@
   "WorkspaceRootPath": "D:\\Test\\LyraSAT\\LyraSAT_BackEnd\\",
   "Documents": [
     {
+      "AbsoluteMoniker": "D:0:0:{6672B696-6096-E9F2-78FE-2612A737E912}|LyraSAT\\LyraSAT.csproj|d:\\test\\lyrasat\\lyrasat_backend\\lyrasat\\lyrasat.csproj||{FA3CD31E-987B-443A-9B81-186104E8DAC1}|",
+      "RelativeMoniker": "D:0:0:{6672B696-6096-E9F2-78FE-2612A737E912}|LyraSAT\\LyraSAT.csproj|solutionrelative:lyrasat\\lyrasat.csproj||{FA3CD31E-987B-443A-9B81-186104E8DAC1}|"
+    },
+    {
       "AbsoluteMoniker": "D:0:0:{6672B696-6096-E9F2-78FE-2612A737E912}|LyraSAT\\LyraSAT.csproj|d:\\test\\lyrasat\\lyrasat_backend\\lyrasat\\appsettings.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}",
       "RelativeMoniker": "D:0:0:{6672B696-6096-E9F2-78FE-2612A737E912}|LyraSAT\\LyraSAT.csproj|solutionrelative:lyrasat\\appsettings.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}"
     },
@@ -81,7 +85,7 @@
       "DocumentGroups": [
         {
           "DockedWidth": 200,
-          "SelectedChildIndex": 200,
+          "SelectedChildIndex": 190,
           "Children": [
             {
               "$type": "Bookmark",
@@ -845,7 +849,20 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 1,
+              "DocumentIndex": 0,
+              "Title": "LyraSAT",
+              "DocumentMoniker": "D:\\Test\\LyraSAT\\LyraSAT_BackEnd\\LyraSAT\\LyraSAT.csproj",
+              "RelativeDocumentMoniker": "LyraSAT\\LyraSAT.csproj",
+              "ToolTip": "D:\\Test\\LyraSAT\\LyraSAT_BackEnd\\LyraSAT\\LyraSAT.csproj",
+              "RelativeToolTip": "LyraSAT\\LyraSAT.csproj",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAABYAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000758|",
+              "WhenOpened": "2026-10-18T18:38:27.776Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 2,
               "Title": "Microsoft.Common.CurrentVersion.targets",
               "DocumentMoniker": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Current\\Bin\\amd64\\Microsoft.Common.CurrentVersion.targets",
               "ToolTip": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Current\\Bin\\amd64\\Microsoft.Common.CurrentVersion.targets",
@@ -856,7 +873,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 2,
+              "DocumentIndex": 3,
               "Title": "AuthController.cs",
               "DocumentMoniker": "D:\\Test\\LyraSAT\\LyraSAT_BackEnd\\LyraSAT\\Controllers\\AuthController.cs",
               "RelativeDocumentMoniker": "LyraSAT\\Controllers\\AuthController.cs",
@@ -869,7 +886,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 6,
+              "DocumentIndex": 7,
               "Title": "AdminController.cs",
               "DocumentMoniker": "D:\\Test\\LyraSAT\\LyraSAT_BackEnd\\LyraSAT\\Controllers\\AdminController.cs",
               "RelativeDocumentMoniker": "LyraSAT\\Controllers\\AdminController.cs",
@@ -881,7 +898,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 16,
+              "DocumentIndex": 17,
               "Title": "ClassesController.cs",
               "DocumentMoniker": "D:\\Test\\LyraSAT\\LyraSAT_BackEnd\\LyraSAT\\Controllers\\ClassesController.cs",
               "RelativeDocumentMoniker": "LyraSAT\\Controllers\\ClassesController.cs",
@@ -893,7 +910,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 7,
+              "DocumentIndex": 8,
               "Title": "Class.cs",
               "DocumentMoniker": "D:\\Test\\LyraSAT\\LyraSAT_BackEnd\\LyraSAT\\Models\\Class.cs",
               "RelativeDocumentMoniker": "LyraSAT\\Models\\Class.cs",
@@ -905,7 +922,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 17,
+              "DocumentIndex": 18,
               "Title": "QuestionComment.cs",
               "DocumentMoniker": "D:\\Test\\LyraSAT\\LyraSAT_BackEnd\\LyraSAT\\Models\\QuestionComment.cs",
               "RelativeDocumentMoniker": "LyraSAT\\Models\\QuestionComment.cs",
@@ -917,7 +934,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 4,
+              "DocumentIndex": 5,
               "Title": "VocabulariesController.cs",
               "DocumentMoniker": "D:\\Test\\LyraSAT\\LyraSAT_BackEnd\\LyraSAT\\Controllers\\VocabulariesController.cs",
               "RelativeDocumentMoniker": "LyraSAT\\Controllers\\VocabulariesController.cs",
@@ -929,7 +946,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 15,
+              "DocumentIndex": 16,
               "Title": "SubmissionsController.cs",
               "DocumentMoniker": "D:\\Test\\LyraSAT\\LyraSAT_BackEnd\\LyraSAT\\Controllers\\SubmissionsController.cs",
               "RelativeDocumentMoniker": "LyraSAT\\Controllers\\SubmissionsController.cs",
@@ -941,7 +958,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 5,
+              "DocumentIndex": 6,
               "Title": "TestsController.cs",
               "DocumentMoniker": "D:\\Test\\LyraSAT\\LyraSAT_BackEnd\\LyraSAT\\Controllers\\TestsController.cs",
               "RelativeDocumentMoniker": "LyraSAT\\Controllers\\TestsController.cs",
@@ -953,7 +970,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 3,
+              "DocumentIndex": 4,
               "Title": "Program.cs",
               "DocumentMoniker": "D:\\Test\\LyraSAT\\LyraSAT_BackEnd\\LyraSAT\\Program.cs",
               "RelativeDocumentMoniker": "LyraSAT\\Program.cs",
@@ -965,7 +982,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 0,
+              "DocumentIndex": 1,
               "Title": "appsettings.json",
               "DocumentMoniker": "D:\\Test\\LyraSAT\\LyraSAT_BackEnd\\LyraSAT\\appsettings.json",
               "RelativeDocumentMoniker": "LyraSAT\\appsettings.json",
@@ -978,7 +995,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 13,
+              "DocumentIndex": 14,
               "Title": "LyraSatDbContext.cs",
               "DocumentMoniker": "D:\\Test\\LyraSAT\\LyraSAT_BackEnd\\LyraSAT\\Data\\LyraSatDbContext.cs",
               "RelativeDocumentMoniker": "LyraSAT\\Data\\LyraSatDbContext.cs",
@@ -990,7 +1007,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 11,
+              "DocumentIndex": 12,
               "Title": "Vocabulary.cs",
               "DocumentMoniker": "D:\\Test\\LyraSAT\\LyraSAT_BackEnd\\LyraSAT\\Models\\Vocabulary.cs",
               "RelativeDocumentMoniker": "LyraSAT\\Models\\Vocabulary.cs",
@@ -1002,7 +1019,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 12,
+              "DocumentIndex": 13,
               "Title": "SubmissionDetail.cs",
               "DocumentMoniker": "D:\\Test\\LyraSAT\\LyraSAT_BackEnd\\LyraSAT\\Models\\SubmissionDetail.cs",
               "RelativeDocumentMoniker": "LyraSAT\\Models\\SubmissionDetail.cs",
@@ -1014,7 +1031,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 10,
+              "DocumentIndex": 11,
               "Title": "Submission.cs",
               "DocumentMoniker": "D:\\Test\\LyraSAT\\LyraSAT_BackEnd\\LyraSAT\\Models\\Submission.cs",
               "RelativeDocumentMoniker": "LyraSAT\\Models\\Submission.cs",
@@ -1026,7 +1043,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 14,
+              "DocumentIndex": 15,
               "Title": "Question.cs",
               "DocumentMoniker": "D:\\Test\\LyraSAT\\LyraSAT_BackEnd\\LyraSAT\\Models\\Question.cs",
               "RelativeDocumentMoniker": "LyraSAT\\Models\\Question.cs",
@@ -1038,7 +1055,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 9,
+              "DocumentIndex": 10,
               "Title": "Test.cs",
               "DocumentMoniker": "D:\\Test\\LyraSAT\\LyraSAT_BackEnd\\LyraSAT\\Models\\Test.cs",
               "RelativeDocumentMoniker": "LyraSAT\\Models\\Test.cs",
@@ -1050,7 +1067,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 8,
+              "DocumentIndex": 9,
               "Title": "User.cs",
               "DocumentMoniker": "D:\\Test\\LyraSAT\\LyraSAT_BackEnd\\LyraSAT\\Models\\User.cs",
               "RelativeDocumentMoniker": "LyraSAT\\Models\\User.cs",
