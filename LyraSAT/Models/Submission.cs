@@ -28,7 +28,7 @@ namespace LyraSAT.Models
 
         public int TimeSpent { get; set; } // Thời gian làm bài (tính theo giây)
 
-        public DateTime SubmittedAt { get; set; } = DateTime.Now;
+        public DateTime SubmittedAt { get; set; } = DateTime.UtcNow;
 
         [StringLength(50)]
         public string Status { get; set; } = "Completed"; // Trạng thái: Completed / InProgress

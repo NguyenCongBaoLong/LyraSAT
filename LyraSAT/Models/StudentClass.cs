@@ -14,7 +14,7 @@ namespace LyraSAT.Models
         [Required]
         public int ClassId { get; set; }
 
-        public DateTime AssignedAt { get; set; } = DateTime.Now;
+        public DateTime AssignedAt { get; set; } = DateTime.UtcNow;
 
         [ForeignKey("UserId")]
         public virtual User? User { get; set; }

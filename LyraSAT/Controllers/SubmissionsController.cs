@@ -70,7 +70,7 @@ namespace LyraSAT.Controllers
                 TotalQuestions = totalQuestions,
                 Score = scorePercent,
                 TimeSpent = model.TimeSpent,
-                SubmittedAt = DateTime.Now,
+                SubmittedAt = DateTime.UtcNow,
                 Status = "Completed",
                 SubmissionDetails = submissionDetails
             };
