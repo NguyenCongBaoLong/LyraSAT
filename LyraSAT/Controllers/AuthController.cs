@@ -3,6 +3,7 @@ using LyraSAT.Models; // Đảm bảo namespace chứa model User của bạn
 using Microsoft.AspNetCore.Identity; // Thêm thư viện để dùng PasswordHasher
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.Globalization;
 
 namespace LyraSAT.Controllers
 {
@@ -127,7 +128,11 @@ namespace LyraSAT.Controllers
             user.School = model.School;
 
             // Ép kiểu an toàn cho Ngày sinh
-            if (!string.IsNullOrEmpty(model.Dob) && DateTime.TryParse(model.Dob, out var parsedDob))
+            if (!string.IsNullOrEmpty(model.Dob) && DateTime.TryParse(
+                model.Dob,
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+                out var parsedDob))
             {
                 user.Dob = parsedDob;
             }
@@ -137,7 +142,11 @@ namespace LyraSAT.Controllers
             }
 
             // Ép kiểu an toàn cho Ngày kiểm tra
-            if (!string.IsNullOrEmpty(model.ExamDate) && DateTime.TryParse(model.ExamDate, out var parsedExamDate))
+            if (!string.IsNullOrEmpty(model.ExamDate) && DateTime.TryParse(
+                model.ExamDate,
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+                out var parsedExamDate))
             {
                 user.ExamDate = parsedExamDate;
             }

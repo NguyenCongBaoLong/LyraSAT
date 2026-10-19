@@ -77,7 +77,7 @@ namespace LyraSAT.Controllers
             [FromForm] string classCode,
             [FromForm] int duration,
             [FromForm] string testType,
-            [FromForm] DateTime? deadline,
+            [FromForm] DateTimeOffset? deadline,
             [FromForm] int? maxAttempts, // Nhận giá trị từ form (có thể để trống)
             IFormFile file)
         {
@@ -103,9 +103,9 @@ namespace LyraSAT.Controllers
                     ClassCode = classCode,
                     Duration = duration,
                     TestType = testType,
-                    Deadline = deadline,
+                    Deadline = deadline?.UtcDateTime,
                     MaxAttempts = finalMaxAttempts,
-                    CreatedAt = DateTime.Now
+                    CreatedAt = DateTime.UtcNow
                 };
 
                 _context.Tests.Add(newTest);

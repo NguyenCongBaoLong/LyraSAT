@@ -13,7 +13,7 @@ namespace LyraSAT.Models
         public string? FileUrl { get; set; }
         public string? TestType { get; set; }
         public string? Description { get; set; }
-        public DateTime CreatedAt { get; set; } = DateTime.Now;
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public int? MaxAttempts { get; set; }
 
         public ICollection<Question> Questions { get; set; }
