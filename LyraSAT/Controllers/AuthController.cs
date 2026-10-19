@@ -37,8 +37,7 @@ namespace LyraSAT.Controllers
             }
 
             // --- Xử lý tính toán Streak ---
-            var today = DateTime.Today;
-
+            var today = DateTime.UtcNow.Date;
             if (user.LastLoginDate == null)
             {
                 // Đăng nhập lần đầu tiên
