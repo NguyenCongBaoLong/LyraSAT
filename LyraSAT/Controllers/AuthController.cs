@@ -1,5 +1,6 @@
 ﻿using LyraSAT.Data;
 using LyraSAT.Models; // Đảm bảo namespace chứa model User của bạn
+using Microsoft.AspNetCore.Identity; // Thêm thư viện để dùng PasswordHasher
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -10,6 +11,7 @@ namespace LyraSAT.Controllers
     public class AuthController : ControllerBase
     {
         private readonly LyraSatDbContext _context;
+        private readonly PasswordHasher<User> _passwordHasher = new PasswordHasher<User>(); // Khởi tạo công cụ băm mật khẩu
 
         public AuthController(LyraSatDbContext context)
         {
@@ -21,7 +23,15 @@ namespace LyraSAT.Controllers
         {
             var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == model.Email);
 
-            if (user == null || user.PasswordHash != model.Password) // (Lưu ý: nhớ dùng hàm kiểm tra password hash thực tế của bạn)
+            if (user == null)
+            {
+                return Unauthorized(new { message = "Email hoặc mật khẩu không chính xác!" });
+            }
+
+            // Kiểm tra mật khẩu thô người dùng nhập vào so với PasswordHash đã mã hóa trong DB
+            var passwordVerificationResult = _passwordHasher.VerifyHashedPassword(user, user.PasswordHash, model.Password);
+
+            if (passwordVerificationResult == PasswordVerificationResult.Failed)
             {
                 return Unauthorized(new { message = "Email hoặc mật khẩu không chính xác!" });
             }
@@ -62,7 +72,7 @@ namespace LyraSAT.Controllers
             return Ok(new { message = "Đăng nhập thành công!", user });
         }
 
-        // Bổ sung API Đăng ký tài khoản mới
+        // Bổ sung API Đăng ký tài khoản mới - Đã áp dụng Hash Password
         [HttpPost("register")]
         public async Task<IActionResult> Register([FromBody] RegisterDto model)
         {
@@ -79,12 +89,14 @@ namespace LyraSAT.Controllers
             var newUser = new User
             {
                 Email = model.Email,
-                PasswordHash = model.Password, // Lưu dạng chuỗi thô để dễ test theo logic hiện tại
                 FullName = model.FullName,
                 Role = string.IsNullOrEmpty(model.Role) ? "Student" : model.Role, // Mặc định là Student nếu không truyền
                 ClassCode = string.IsNullOrEmpty(model.ClassCode) ? "SAT01" : model.ClassCode,
                 TargetScore = 1500
             };
+
+            // Băm mật khẩu trước khi lưu vào Database
+            newUser.PasswordHash = _passwordHasher.HashPassword(newUser, model.Password);
 
             _context.Users.Add(newUser);
             await _context.SaveChangesAsync();
@@ -102,7 +114,6 @@ namespace LyraSAT.Controllers
                 }
             });
         }
-
 
         [HttpPost("update-profile")]
         public async Task<IActionResult> UpdateProfile([FromBody] UpdateProfileDto model)
@@ -165,4 +176,3 @@ namespace LyraSAT.Controllers
         public string? ExamDate { get; set; }
     }
 }
-    

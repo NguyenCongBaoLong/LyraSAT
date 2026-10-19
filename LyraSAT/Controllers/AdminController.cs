@@ -1,6 +1,7 @@
 ﻿using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Identity; // Thêm thư viện để dùng PasswordHasher
 using LyraSAT.Data;
 using LyraSAT.Models;
 using System;
@@ -33,13 +34,14 @@ namespace LyraSAT.Controllers
     public class AdminController : ControllerBase
     {
         private readonly LyraSatDbContext _context;
+        private readonly PasswordHasher<User> _passwordHasher = new PasswordHasher<User>(); // Khởi tạo công cụ băm mật khẩu
 
         public AdminController(LyraSatDbContext context)
         {
             _context = context;
         }
 
-        // 1. Tạo tài khoản mới (Học sinh hoặc Giáo viên)
+        // 1. Tạo tài khoản mới (Học sinh hoặc Giáo viên) - Đã áp dụng Hash Password
         [HttpPost("users/create")]
         public async Task<IActionResult> CreateUser([FromBody] CreateUserDto dto)
         {
@@ -54,10 +56,12 @@ namespace LyraSAT.Controllers
                 {
                     FullName = dto.FullName,
                     Email = dto.Email,
-                    PasswordHash = dto.Password, // Lưu ý: Nên mã hóa mật khẩu nếu dùng thực tế
                     Role = dto.Role,
                     ClassCode = dto.Role == "Student" ? dto.ClassCode : null,
                 };
+
+                // Băm mật khẩu trước khi lưu vào Database
+                newUser.PasswordHash = _passwordHasher.HashPassword(newUser, dto.Password);
 
                 _context.Users.Add(newUser);
                 await _context.SaveChangesAsync();
@@ -159,7 +163,7 @@ namespace LyraSAT.Controllers
                 return StatusCode(500, new { message = "Lỗi server: " + ex.Message });
             }
         }
-        // Thêm DTO này vào file (nếu chưa có)
+
         public class AssignTeacherDto
         {
             public int? TeacherId { get; set; }
@@ -210,7 +214,7 @@ namespace LyraSAT.Controllers
                 return StatusCode(500, new { message = "Lỗi server: " + ex.Message });
             }
         }
-        // DTO hỗ trợ thêm học sinh vào lớp
+
         public class AddStudentToClassDto
         {
             public int StudentId { get; set; }
