@@ -175,6 +175,8 @@ D:\Test\LyraSAT\LyraSAT_BackEnd\LyraSAT\bin\Debug\net8.0\Microsoft.EntityFramewo
 D:\Test\LyraSAT\LyraSAT_BackEnd\LyraSAT\bin\Debug\net8.0\Microsoft.EntityFrameworkCore.Relational.dll
 D:\Test\LyraSAT\LyraSAT_BackEnd\LyraSAT\bin\Debug\net8.0\Microsoft.EntityFrameworkCore.SqlServer.dll
 D:\Test\LyraSAT\LyraSAT_BackEnd\LyraSAT\bin\Debug\net8.0\Microsoft.Extensions.Caching.Memory.dll
+D:\Test\LyraSAT\LyraSAT_BackEnd\LyraSAT\bin\Debug\net8.0\Microsoft.Extensions.Configuration.FileExtensions.dll
+D:\Test\LyraSAT\LyraSAT_BackEnd\LyraSAT\bin\Debug\net8.0\Microsoft.Extensions.Configuration.Json.dll
 D:\Test\LyraSAT\LyraSAT_BackEnd\LyraSAT\bin\Debug\net8.0\Microsoft.Extensions.DependencyInjection.dll
 D:\Test\LyraSAT\LyraSAT_BackEnd\LyraSAT\bin\Debug\net8.0\Microsoft.Extensions.DependencyInjection.Abstractions.dll
 D:\Test\LyraSAT\LyraSAT_BackEnd\LyraSAT\bin\Debug\net8.0\Microsoft.Extensions.DependencyModel.dll
@@ -316,6 +318,7 @@ D:\Test\LyraSAT\LyraSAT_BackEnd\LyraSAT\obj\Debug\net8.0\LyraSAT.AssemblyInfo.cs
 D:\Test\LyraSAT\LyraSAT_BackEnd\LyraSAT\obj\Debug\net8.0\LyraSAT.csproj.CoreCompileInputs.cache
 D:\Test\LyraSAT\LyraSAT_BackEnd\LyraSAT\obj\Debug\net8.0\LyraSAT.MvcApplicationPartsAssemblyInfo.cs
 D:\Test\LyraSAT\LyraSAT_BackEnd\LyraSAT\obj\Debug\net8.0\LyraSAT.MvcApplicationPartsAssemblyInfo.cache
+D:\Test\LyraSAT\LyraSAT_BackEnd\LyraSAT\obj\Debug\net8.0\LyraSAT.sourcelink.json
 D:\Test\LyraSAT\LyraSAT_BackEnd\LyraSAT\obj\Debug\net8.0\rjimswa.dswa.cache.json
 D:\Test\LyraSAT\LyraSAT_BackEnd\LyraSAT\obj\Debug\net8.0\rjsmrazor.dswa.cache.json
 D:\Test\LyraSAT\LyraSAT_BackEnd\LyraSAT\obj\Debug\net8.0\rjsmcshtml.dswa.cache.json
@@ -332,5 +335,3 @@ D:\Test\LyraSAT\LyraSAT_BackEnd\LyraSAT\obj\Debug\net8.0\refint\LyraSAT.dll
 D:\Test\LyraSAT\LyraSAT_BackEnd\LyraSAT\obj\Debug\net8.0\LyraSAT.pdb
 D:\Test\LyraSAT\LyraSAT_BackEnd\LyraSAT\obj\Debug\net8.0\LyraSAT.genruntimeconfig.cache
 D:\Test\LyraSAT\LyraSAT_BackEnd\LyraSAT\obj\Debug\net8.0\ref\LyraSAT.dll
-D:\Test\LyraSAT\LyraSAT_BackEnd\LyraSAT\bin\Debug\net8.0\Microsoft.Extensions.Configuration.FileExtensions.dll
-D:\Test\LyraSAT\LyraSAT_BackEnd\LyraSAT\bin\Debug\net8.0\Microsoft.Extensions.Configuration.Json.dll
