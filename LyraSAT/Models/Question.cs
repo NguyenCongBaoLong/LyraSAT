@@ -18,7 +18,7 @@ namespace LyraSAT.Models
         public string OptionC { get; set; }
         public string OptionD { get; set; }
         public string CorrectAnswer { get; set; }
-        public string VideoExplanationUrl { get; set; }
+        public string? VideoExplanationUrl { get; set; }
         public string? Explanation { get; set; }        
         public string? Section { get; set; }            
         public int? ModuleNumber { get; set; }

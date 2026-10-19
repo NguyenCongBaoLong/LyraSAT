@@ -104,7 +104,6 @@ namespace LyraSAT.Migrations
                         .HasColumnType("integer");
 
                     b.Property<string>("VideoExplanationUrl")
-                        .IsRequired()
                         .HasColumnType("text");
 
                     b.HasKey("Id");

@@ -3,6 +3,14 @@
   "WorkspaceRootPath": "D:\\Test\\LyraSAT\\LyraSAT_BackEnd\\",
   "Documents": [
     {
+      "AbsoluteMoniker": "D:0:0:{6672B696-6096-E9F2-78FE-2612A737E912}|LyraSAT\\LyraSAT.csproj|d:\\test\\lyrasat\\lyrasat_backend\\lyrasat\\controllers\\testscontroller.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{6672B696-6096-E9F2-78FE-2612A737E912}|LyraSAT\\LyraSAT.csproj|solutionrelative:lyrasat\\controllers\\testscontroller.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{6672B696-6096-E9F2-78FE-2612A737E912}|LyraSAT\\LyraSAT.csproj|d:\\test\\lyrasat\\lyrasat_backend\\lyrasat\\models\\question.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{6672B696-6096-E9F2-78FE-2612A737E912}|LyraSAT\\LyraSAT.csproj|solutionrelative:lyrasat\\models\\question.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
       "AbsoluteMoniker": "D:0:0:{6672B696-6096-E9F2-78FE-2612A737E912}|LyraSAT\\LyraSAT.csproj|d:\\test\\lyrasat\\lyrasat_backend\\lyrasat\\models\\user.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
       "RelativeMoniker": "D:0:0:{6672B696-6096-E9F2-78FE-2612A737E912}|LyraSAT\\LyraSAT.csproj|solutionrelative:lyrasat\\models\\user.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
@@ -19,10 +27,6 @@
       "RelativeMoniker": "D:0:0:{6672B696-6096-E9F2-78FE-2612A737E912}|LyraSAT\\LyraSAT.csproj|solutionrelative:lyrasat\\data\\lyrasatdbcontext.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
-      "AbsoluteMoniker": "D:0:0:{6672B696-6096-E9F2-78FE-2612A737E912}|LyraSAT\\LyraSAT.csproj|d:\\test\\lyrasat\\lyrasat_backend\\lyrasat\\program.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
-      "RelativeMoniker": "D:0:0:{6672B696-6096-E9F2-78FE-2612A737E912}|LyraSAT\\LyraSAT.csproj|solutionrelative:lyrasat\\program.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
-    },
-    {
       "AbsoluteMoniker": "D:0:0:{6672B696-6096-E9F2-78FE-2612A737E912}|LyraSAT\\LyraSAT.csproj|d:\\test\\lyrasat\\lyrasat_backend\\lyrasat\\controllers\\admincontroller.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
       "RelativeMoniker": "D:0:0:{6672B696-6096-E9F2-78FE-2612A737E912}|LyraSAT\\LyraSAT.csproj|solutionrelative:lyrasat\\controllers\\admincontroller.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
@@ -33,10 +37,6 @@
     {
       "AbsoluteMoniker": "D:0:0:{6672B696-6096-E9F2-78FE-2612A737E912}|LyraSAT\\LyraSAT.csproj|d:\\test\\lyrasat\\lyrasat_backend\\lyrasat\\controllers\\vocabulariescontroller.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
       "RelativeMoniker": "D:0:0:{6672B696-6096-E9F2-78FE-2612A737E912}|LyraSAT\\LyraSAT.csproj|solutionrelative:lyrasat\\controllers\\vocabulariescontroller.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
-    },
-    {
-      "AbsoluteMoniker": "D:0:0:{6672B696-6096-E9F2-78FE-2612A737E912}|LyraSAT\\LyraSAT.csproj|d:\\test\\lyrasat\\lyrasat_backend\\lyrasat\\controllers\\testscontroller.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
-      "RelativeMoniker": "D:0:0:{6672B696-6096-E9F2-78FE-2612A737E912}|LyraSAT\\LyraSAT.csproj|solutionrelative:lyrasat\\controllers\\testscontroller.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
       "AbsoluteMoniker": "D:0:0:{6672B696-6096-E9F2-78FE-2612A737E912}|LyraSAT\\LyraSAT.csproj|d:\\test\\lyrasat\\lyrasat_backend\\lyrasat\\models\\class.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
@@ -59,10 +59,6 @@
       "RelativeMoniker": "D:0:0:{6672B696-6096-E9F2-78FE-2612A737E912}|LyraSAT\\LyraSAT.csproj|solutionrelative:lyrasat\\models\\submissiondetail.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
-      "AbsoluteMoniker": "D:0:0:{6672B696-6096-E9F2-78FE-2612A737E912}|LyraSAT\\LyraSAT.csproj|d:\\test\\lyrasat\\lyrasat_backend\\lyrasat\\models\\question.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
-      "RelativeMoniker": "D:0:0:{6672B696-6096-E9F2-78FE-2612A737E912}|LyraSAT\\LyraSAT.csproj|solutionrelative:lyrasat\\models\\question.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
-    },
-    {
       "AbsoluteMoniker": "D:0:0:{6672B696-6096-E9F2-78FE-2612A737E912}|LyraSAT\\LyraSAT.csproj|d:\\test\\lyrasat\\lyrasat_backend\\lyrasat\\controllers\\submissionscontroller.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
       "RelativeMoniker": "D:0:0:{6672B696-6096-E9F2-78FE-2612A737E912}|LyraSAT\\LyraSAT.csproj|solutionrelative:lyrasat\\controllers\\submissionscontroller.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
@@ -82,7 +78,7 @@
       "DocumentGroups": [
         {
           "DockedWidth": 200,
-          "SelectedChildIndex": 206,
+          "SelectedChildIndex": 197,
           "Children": [
             {
               "$type": "Bookmark",
@@ -842,7 +838,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 6,
+              "DocumentIndex": 7,
               "Title": "LyraSAT.csproj",
               "DocumentMoniker": "D:\\Test\\LyraSAT\\LyraSAT_BackEnd\\LyraSAT\\LyraSAT.csproj",
               "RelativeDocumentMoniker": "LyraSAT\\LyraSAT.csproj",
@@ -854,20 +850,20 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 1,
+              "DocumentIndex": 3,
               "Title": "AuthController.cs",
               "DocumentMoniker": "D:\\Test\\LyraSAT\\LyraSAT_BackEnd\\LyraSAT\\Controllers\\AuthController.cs",
               "RelativeDocumentMoniker": "LyraSAT\\Controllers\\AuthController.cs",
               "ToolTip": "D:\\Test\\LyraSAT\\LyraSAT_BackEnd\\LyraSAT\\Controllers\\AuthController.cs",
               "RelativeToolTip": "LyraSAT\\Controllers\\AuthController.cs",
-              "ViewState": "AgIAAEoAAAAAAAAAAAAqwFQAAAANAAAAAAAAAA==",
+              "ViewState": "AgIAAEsAAAAAAAAAAAAqwFUAAAANAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
               "WhenOpened": "2026-10-18T13:34:58.242Z",
               "EditorCaption": ""
             },
             {
               "$type": "Document",
-              "DocumentIndex": 5,
+              "DocumentIndex": 6,
               "Title": "AdminController.cs",
               "DocumentMoniker": "D:\\Test\\LyraSAT\\LyraSAT_BackEnd\\LyraSAT\\Controllers\\AdminController.cs",
               "RelativeDocumentMoniker": "LyraSAT\\Controllers\\AdminController.cs",
@@ -879,7 +875,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 16,
+              "DocumentIndex": 15,
               "Title": "ClassesController.cs",
               "DocumentMoniker": "D:\\Test\\LyraSAT\\LyraSAT_BackEnd\\LyraSAT\\Controllers\\ClassesController.cs",
               "RelativeDocumentMoniker": "LyraSAT\\Controllers\\ClassesController.cs",
@@ -903,7 +899,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 17,
+              "DocumentIndex": 16,
               "Title": "QuestionComment.cs",
               "DocumentMoniker": "D:\\Test\\LyraSAT\\LyraSAT_BackEnd\\LyraSAT\\Models\\QuestionComment.cs",
               "RelativeDocumentMoniker": "LyraSAT\\Models\\QuestionComment.cs",
@@ -915,7 +911,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 7,
+              "DocumentIndex": 8,
               "Title": "VocabulariesController.cs",
               "DocumentMoniker": "D:\\Test\\LyraSAT\\LyraSAT_BackEnd\\LyraSAT\\Controllers\\VocabulariesController.cs",
               "RelativeDocumentMoniker": "LyraSAT\\Controllers\\VocabulariesController.cs",
@@ -927,7 +923,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 15,
+              "DocumentIndex": 14,
               "Title": "SubmissionsController.cs",
               "DocumentMoniker": "D:\\Test\\LyraSAT\\LyraSAT_BackEnd\\LyraSAT\\Controllers\\SubmissionsController.cs",
               "RelativeDocumentMoniker": "LyraSAT\\Controllers\\SubmissionsController.cs",
@@ -939,31 +935,20 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 8,
+              "DocumentIndex": 0,
               "Title": "TestsController.cs",
               "DocumentMoniker": "D:\\Test\\LyraSAT\\LyraSAT_BackEnd\\LyraSAT\\Controllers\\TestsController.cs",
               "RelativeDocumentMoniker": "LyraSAT\\Controllers\\TestsController.cs",
               "ToolTip": "D:\\Test\\LyraSAT\\LyraSAT_BackEnd\\LyraSAT\\Controllers\\TestsController.cs",
               "RelativeToolTip": "LyraSAT\\Controllers\\TestsController.cs",
-              "ViewState": "AgIAAGcAAAAAAAAAAAAuwH4AAAApAAAAAAAAAA==",
+              "ViewState": "AgIAAFoAAAAAAAAAAAAuwGoAAAAzAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-10-12T05:28:47.843Z"
+              "WhenOpened": "2026-10-12T05:28:47.843Z",
+              "EditorCaption": ""
             },
             {
               "$type": "Document",
               "DocumentIndex": 4,
-              "Title": "Program.cs",
-              "DocumentMoniker": "D:\\Test\\LyraSAT\\LyraSAT_BackEnd\\LyraSAT\\Program.cs",
-              "RelativeDocumentMoniker": "LyraSAT\\Program.cs",
-              "ToolTip": "D:\\Test\\LyraSAT\\LyraSAT_BackEnd\\LyraSAT\\Program.cs",
-              "RelativeToolTip": "LyraSAT\\Program.cs",
-              "ViewState": "AgIAAAAAAAAAAAAAAAAAABMAAAAAAAAAAAAAAA==",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-10-12T05:23:28.607Z"
-            },
-            {
-              "$type": "Document",
-              "DocumentIndex": 2,
               "Title": "appsettings.json",
               "DocumentMoniker": "D:\\Test\\LyraSAT\\LyraSAT_BackEnd\\LyraSAT\\appsettings.json",
               "RelativeDocumentMoniker": "LyraSAT\\appsettings.json",
@@ -975,7 +960,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 3,
+              "DocumentIndex": 5,
               "Title": "LyraSatDbContext.cs",
               "DocumentMoniker": "D:\\Test\\LyraSAT\\LyraSAT_BackEnd\\LyraSAT\\Data\\LyraSatDbContext.cs",
               "RelativeDocumentMoniker": "LyraSAT\\Data\\LyraSatDbContext.cs",
@@ -1023,15 +1008,16 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 14,
+              "DocumentIndex": 1,
               "Title": "Question.cs",
               "DocumentMoniker": "D:\\Test\\LyraSAT\\LyraSAT_BackEnd\\LyraSAT\\Models\\Question.cs",
               "RelativeDocumentMoniker": "LyraSAT\\Models\\Question.cs",
               "ToolTip": "D:\\Test\\LyraSAT\\LyraSAT_BackEnd\\LyraSAT\\Models\\Question.cs",
               "RelativeToolTip": "LyraSAT\\Models\\Question.cs",
-              "ViewState": "AgIAAAAAAAAAAAAAAAAAAA8AAAArAAAAAAAAAA==",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAA0AAAAwAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-10-12T04:57:53.898Z"
+              "WhenOpened": "2026-10-12T04:57:53.898Z",
+              "EditorCaption": ""
             },
             {
               "$type": "Document",
@@ -1047,13 +1033,13 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 0,
+              "DocumentIndex": 2,
               "Title": "User.cs",
               "DocumentMoniker": "D:\\Test\\LyraSAT\\LyraSAT_BackEnd\\LyraSAT\\Models\\User.cs",
               "RelativeDocumentMoniker": "LyraSAT\\Models\\User.cs",
               "ToolTip": "D:\\Test\\LyraSAT\\LyraSAT_BackEnd\\LyraSAT\\Models\\User.cs",
               "RelativeToolTip": "LyraSAT\\Models\\User.cs",
-              "ViewState": "AgIAAAUAAAAAAAAAAAAAwBAAAAAtAAAAAAAAAA==",
+              "ViewState": "AgIAAAUAAAAAAAAAAAAAwA8AAAAtAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
               "WhenOpened": "2026-10-12T04:56:38.872Z",
               "EditorCaption": ""

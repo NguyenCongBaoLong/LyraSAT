@@ -334,3 +334,4 @@ D:\Test\LyraSAT\LyraSAT_BackEnd\LyraSAT\obj\Debug\net8.0\refint\LyraSAT.dll
 D:\Test\LyraSAT\LyraSAT_BackEnd\LyraSAT\obj\Debug\net8.0\LyraSAT.pdb
 D:\Test\LyraSAT\LyraSAT_BackEnd\LyraSAT\obj\Debug\net8.0\LyraSAT.genruntimeconfig.cache
 D:\Test\LyraSAT\LyraSAT_BackEnd\LyraSAT\obj\Debug\net8.0\ref\LyraSAT.dll
+D:\Test\LyraSAT\LyraSAT_BackEnd\LyraSAT\obj\Debug\net8.0\staticwebassets.upToDateCheck.txt
