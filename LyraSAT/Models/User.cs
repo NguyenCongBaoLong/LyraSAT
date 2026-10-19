@@ -10,7 +10,7 @@ namespace LyraSAT.Models
         public string PasswordHash { get; set; }
         public string Role { get; set; } // 'Student' hoặc 'Teacher'
         public string FullName { get; set; }
-        public string ClassCode { get; set; }
+        public string? ClassCode { get; set; }
         public string? Avatar { get; set; }
         public DateTime? Dob { get; set; }
         public string? Nickname { get; set; }

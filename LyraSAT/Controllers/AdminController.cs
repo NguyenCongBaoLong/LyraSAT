@@ -104,7 +104,7 @@ namespace LyraSAT.Controllers
                     ClassName = dto.ClassName,
                     TeacherId = dto.TeacherId,
                     CreatedByAdminId = dto.CreatedByAdminId,
-                    CreatedAt = DateTime.Now
+                    CreatedAt = DateTime.UtcNow
                 };
 
                 _context.Classes.Add(newClass);

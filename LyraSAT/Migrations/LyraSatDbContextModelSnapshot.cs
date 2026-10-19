@@ -300,7 +300,6 @@ namespace LyraSAT.Migrations
                         .HasColumnType("text");
 
                     b.Property<string>("ClassCode")
-                        .IsRequired()
                         .HasColumnType("text");
 
                     b.Property<DateTime?>("Dob")

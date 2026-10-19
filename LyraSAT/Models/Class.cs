@@ -21,7 +21,7 @@ namespace LyraSAT.Models
 
         [ForeignKey("TeacherId")]
         public virtual User? Teacher { get; set; }
-        public DateTime CreatedAt { get; set; } = DateTime.Now;
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
         public virtual ICollection<StudentClass>? StudentClasses { get; set; }
     }

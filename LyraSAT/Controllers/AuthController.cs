@@ -90,7 +90,7 @@ namespace LyraSAT.Controllers
                 Email = model.Email,
                 FullName = model.FullName,
                 Role = string.IsNullOrEmpty(model.Role) ? "Student" : model.Role, // Mặc định là Student nếu không truyền
-                ClassCode = string.IsNullOrEmpty(model.ClassCode) ? "SAT01" : model.ClassCode,
+                ClassCode = model.ClassCode,
                 TargetScore = 1500
             };
 
@@ -162,7 +162,7 @@ namespace LyraSAT.Controllers
         public string Password { get; set; }
         public string FullName { get; set; }
         public string Role { get; set; }      // "Student" hoặc "Teacher"
-        public string ClassCode { get; set; } // Ví dụ: "SAT01"
+        public string? ClassCode { get; set; } // Ví dụ: "SAT01"
     }
 
     public class UpdateProfileDto

@@ -328,7 +328,6 @@ D:\Test\LyraSAT\LyraSAT_BackEnd\LyraSAT\obj\Debug\net8.0\staticwebassets.build.j
 D:\Test\LyraSAT\LyraSAT_BackEnd\LyraSAT\obj\Debug\net8.0\staticwebassets.development.json
 D:\Test\LyraSAT\LyraSAT_BackEnd\LyraSAT\obj\Debug\net8.0\staticwebassets.build.endpoints.json
 D:\Test\LyraSAT\LyraSAT_BackEnd\LyraSAT\obj\Debug\net8.0\swae.build.ex.cache
-D:\Test\LyraSAT\LyraSAT_BackEnd\LyraSAT\obj\Debug\net8.0\staticwebassets.upToDateCheck.txt
 D:\Test\LyraSAT\LyraSAT_BackEnd\LyraSAT\obj\Debug\net8.0\LyraSAT.csproj.Up2Date
 D:\Test\LyraSAT\LyraSAT_BackEnd\LyraSAT\obj\Debug\net8.0\LyraSAT.dll
 D:\Test\LyraSAT\LyraSAT_BackEnd\LyraSAT\obj\Debug\net8.0\refint\LyraSAT.dll
