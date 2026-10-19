@@ -34,7 +34,6 @@ namespace LyraSAT.Controllers
             int correctCount = 0;
             var submissionDetails = new List<SubmissionDetail>();
 
-            // Chuyển đổi dictionary answers sang list nếu cần hoặc duyệt trực tiếp
             foreach (var kvp in model.Answers)
             {
                 int questionId = kvp.Key;
@@ -138,7 +137,7 @@ namespace LyraSAT.Controllers
                     {
                         id = q.Id,
                         questionText = q.QuestionText ?? "",
-                        passageText = q.Explanation ?? "", // Đoạn văn đọc hiểu
+                        passageText = q.PassageText ?? "", // Đã sửa từ q.Explanation thành q.PassageText chuẩn xác
                         optionA = q.OptionA ?? "",
                         optionB = q.OptionB ?? "",
                         optionC = q.OptionC ?? "",
