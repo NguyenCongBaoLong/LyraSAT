@@ -80,8 +80,24 @@ namespace LyraSAT.Controllers
         {
             var teachers = await _context.Users
                 .Where(u => u.Role == "Teacher")
+                .OrderBy(u => u.FullName)
                 .Select(u => new { u.Id, u.FullName, u.Email })
                 .ToListAsync();
+
+            return Ok(teachers);
+        }
+
+        [HttpGet("teachers/paged")]
+        public async Task<IActionResult> GetTeachersPaged(
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 8)
+        {
+            var teachers = await _context.Users
+                .Where(u => u.Role == "Teacher")
+                .OrderBy(u => u.FullName)
+                .ThenBy(u => u.Id)
+                .Select(u => new { u.Id, u.FullName, u.Email })
+                .ToPagedResultAsync(page, pageSize);
 
             return Ok(teachers);
         }
@@ -125,43 +141,45 @@ namespace LyraSAT.Controllers
             try
             {
                 var classes = await _context.Classes
-                    .Include(c => c.Teacher)
-                    .ToListAsync();
-
-                var result = new List<object>();
-                foreach (var c in classes)
-                {
-                    string teacherName = "Chưa phân công";
-                    if (c.TeacherId != null)
-                    {
-                        var teacher = await _context.Users.FindAsync(c.TeacherId);
-                        if (teacher != null)
-                        {
-                            teacherName = teacher.FullName;
-                        }
-                    }
-                    else if (c.Teacher != null)
-                    {
-                        teacherName = c.Teacher.FullName;
-                    }
-
-                    result.Add(new
+                    .OrderBy(c => c.ClassCode)
+                    .Select(c => new
                     {
                         id = c.Id,
                         classCode = c.ClassCode,
                         className = c.ClassName,
                         teacherId = c.TeacherId,
-                        teacherName = teacherName,
+                        teacherName = c.Teacher != null ? c.Teacher.FullName : "Chưa phân công",
                         createdAt = c.CreatedAt
-                    });
-                }
-
-                return Ok(result);
+                    })
+                    .ToListAsync();
+                return Ok(classes);
             }
             catch (Exception ex)
             {
                 return StatusCode(500, new { message = "Lỗi server: " + ex.Message });
             }
+        }
+
+        [HttpGet("classes/paged")]
+        public async Task<IActionResult> GetClassesPaged(
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 8)
+        {
+            var classes = await _context.Classes
+                .OrderBy(c => c.ClassCode)
+                .ThenBy(c => c.Id)
+                .Select(c => new
+                {
+                    id = c.Id,
+                    classCode = c.ClassCode,
+                    className = c.ClassName,
+                    teacherId = c.TeacherId,
+                    teacherName = c.Teacher != null ? c.Teacher.FullName : "Chưa phân công",
+                    createdAt = c.CreatedAt
+                })
+                .ToPagedResultAsync(page, pageSize);
+
+            return Ok(classes);
         }
 
         public class AssignTeacherDto
@@ -222,14 +240,19 @@ namespace LyraSAT.Controllers
 
         // 1. Lấy danh sách học sinh thuộc một lớp cụ thể (dựa theo ClassCode)
         [HttpGet("classes/{classCode}/students")]
-        public async Task<IActionResult> GetStudentsByClass(string classCode)
+        public async Task<IActionResult> GetStudentsByClass(
+            string classCode,
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 8)
         {
             try
             {
                 var students = await _context.Users
                     .Where(u => u.Role == "Student" && u.ClassCode == classCode)
+                    .OrderBy(u => u.FullName)
+                    .ThenBy(u => u.Id)
                     .Select(u => new { u.Id, u.FullName, u.Email })
-                    .ToListAsync();
+                    .ToPagedResultAsync(page, pageSize);
 
                 return Ok(students);
             }
@@ -241,14 +264,19 @@ namespace LyraSAT.Controllers
 
         // 2. Lấy danh sách học sinh CHƯA thuộc lớp này (dùng cho Dropdown chọn thêm)
         [HttpGet("classes/{classCode}/available-students")]
-        public async Task<IActionResult> GetAvailableStudents(string classCode)
+        public async Task<IActionResult> GetAvailableStudents(
+            string classCode,
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 10)
         {
             try
             {
                 var availableStudents = await _context.Users
-                    .Where(u => u.Role == "Student" && u.ClassCode != classCode)
+                    .Where(u => u.Role == "Student" && (u.ClassCode == null || u.ClassCode != classCode))
+                    .OrderBy(u => u.FullName)
+                    .ThenBy(u => u.Id)
                     .Select(u => new { u.Id, u.FullName, u.Email, u.ClassCode })
-                    .ToListAsync();
+                    .ToPagedResultAsync(page, pageSize);
 
                 return Ok(availableStudents);
             }

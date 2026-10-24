@@ -24,7 +24,10 @@ namespace LyraSAT.Controllers
         }
 
         [HttpGet("class/{classCode}/series")]
-        public async Task<IActionResult> GetVocabSeriesByClass(string classCode)
+        public async Task<IActionResult> GetVocabSeriesByClass(
+            string classCode,
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 8)
         {
             try
             {
@@ -32,7 +35,8 @@ namespace LyraSAT.Controllers
                     .Where(v => v.ClassCode == classCode || v.ClassCode == null)
                     .Select(v => v.SeriesName)
                     .Distinct()
-                    .ToListAsync();
+                    .OrderBy(seriesName => seriesName)
+                    .ToPagedResultAsync(page, pageSize);
 
                 return Ok(seriesList);
             }
@@ -43,12 +47,17 @@ namespace LyraSAT.Controllers
         }
 
         [HttpGet("class/{classCode}/series/{seriesName}")]
-        public async Task<IActionResult> GetVocabulariesByClassAndSeries(string classCode, string seriesName)
+        public async Task<IActionResult> GetVocabulariesByClassAndSeries(
+            string classCode,
+            string seriesName,
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 10)
         {
             try
             {
                 var vocabList = await _context.Vocabularies
                     .Where(v => (v.ClassCode == classCode || v.ClassCode == null) && v.SeriesName == seriesName)
+                    .OrderBy(v => v.Id)
                     .Select(v => new
                     {
                         id = v.Id,
@@ -57,7 +66,7 @@ namespace LyraSAT.Controllers
                         example = v.Example,
                         audioUrl = v.AudioUrl
                     })
-                    .ToListAsync();
+                    .ToPagedResultAsync(page, pageSize);
 
                 return Ok(vocabList);
             }
@@ -158,7 +167,9 @@ namespace LyraSAT.Controllers
         }
 
         [HttpGet("classes")]
-        public async Task<IActionResult> GetAllClasses()
+        public async Task<IActionResult> GetAllClasses(
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 8)
         {
             try
             {
@@ -166,7 +177,8 @@ namespace LyraSAT.Controllers
                     .Where(v => v.ClassCode != null)
                     .Select(v => v.ClassCode)
                     .Distinct()
-                    .ToListAsync();
+                    .OrderBy(classCode => classCode)
+                    .ToPagedResultAsync(page, pageSize);
 
                 return Ok(classList);
             }

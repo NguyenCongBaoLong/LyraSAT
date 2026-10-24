@@ -90,10 +90,23 @@ namespace LyraSAT.Controllers
 
         // Xem lịch sử làm bài và chi tiết đáp án
         [HttpGet("history/{studentId}")]
-        public async Task<IActionResult> GetStudentHistory(int studentId)
+        public async Task<IActionResult> GetStudentHistory(
+            int studentId,
+            [FromQuery] string? search,
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 8)
         {
-            var history = await _context.Submissions
-                .Where(s => s.StudentId == studentId)
+            var historyQuery = _context.Submissions
+                .Where(s => s.StudentId == studentId);
+
+            if (!string.IsNullOrWhiteSpace(search))
+            {
+                historyQuery = historyQuery.Where(s => s.Test != null && EF.Functions.ILike(s.Test.Title, $"%{search}%"));
+            }
+
+            var history = await historyQuery
+                .OrderByDescending(s => s.SubmittedAt)
+                .ThenByDescending(s => s.Id)
                 .Include(s => s.Test)
                 .Select(s => new
                 {
@@ -105,7 +118,7 @@ namespace LyraSAT.Controllers
                     s.TimeSpent,
                     s.SubmittedAt
                 })
-                .ToListAsync();
+                .ToPagedResultAsync(page, pageSize);
 
             return Ok(history);
         }

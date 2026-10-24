@@ -23,12 +23,29 @@ namespace LyraSAT.Controllers
 
         // Lấy danh sách bài test theo mã lớp (Mục Mission)
         [HttpGet("class/{classCode}")]
-        public async Task<IActionResult> GetTestsByClass(string classCode)
+        public async Task<IActionResult> GetTestsByClass(
+            string classCode,
+            [FromQuery] string? status,
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 8)
         {
-            var tests = await _context.Tests
-                .Where(t => t.ClassCode == classCode)
-                .ToListAsync();
-            return Ok(tests);
+            var now = DateTime.UtcNow;
+            var tests = _context.Tests
+                .Where(t => t.ClassCode == classCode);
+
+            tests = status?.ToLowerInvariant() switch
+            {
+                "urgent" => tests.Where(t => t.Deadline > now && t.Deadline <= now.AddHours(24)),
+                "expired" => tests.Where(t => t.Deadline <= now),
+                "active" => tests.Where(t => t.Deadline == null || t.Deadline > now.AddHours(24)),
+                _ => tests
+            };
+
+            var result = await tests
+                .OrderByDescending(t => t.CreatedAt)
+                .ThenByDescending(t => t.Id)
+                .ToPagedResultAsync(page, pageSize);
+            return Ok(result);
         }
 
         // Lấy chi tiết câu hỏi của bài test (Khi học sinh bấm vào làm bài)
@@ -298,21 +315,38 @@ namespace LyraSAT.Controllers
         }
 
         [HttpGet("class/{classCode}/results")]
-        public async Task<IActionResult> GetTestResultsByClass(string classCode)
+        public async Task<IActionResult> GetTestResultsByClass(
+            string classCode,
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 10)
         {
             var results = await _context.Tests
                 .Where(t => t.ClassCode == classCode)
-                .ToListAsync();
+                .OrderByDescending(t => t.CreatedAt)
+                .ThenByDescending(t => t.Id)
+                .ToPagedResultAsync(page, pageSize);
 
             return Ok(results);
         }
 
         [HttpGet("class/{classCode}/students")]
-        public async Task<IActionResult> GetStudentsByClass(string classCode)
+        public async Task<IActionResult> GetStudentsByClass(
+            string classCode,
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 10)
         {
             var students = await _context.Users
                 .Where(u => u.ClassCode == classCode && u.Role == "Student")
-                .ToListAsync();
+                .OrderBy(u => u.FullName)
+                .ThenBy(u => u.Id)
+                .Select(u => new
+                {
+                    u.Id,
+                    u.FullName,
+                    u.ClassCode,
+                    TuitionPaid = u.TuitionStatus ?? false
+                })
+                .ToPagedResultAsync(page, pageSize);
             return Ok(students);
         }
 
@@ -344,15 +378,21 @@ namespace LyraSAT.Controllers
         }
 
         [HttpGet("{testId}/submissions")]
-        public async Task<IActionResult> GetTestSubmissions(int testId)
+        public async Task<IActionResult> GetTestSubmissions(
+            int testId,
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 8)
         {
             try
             {
                 var submissions = await _context.Submissions
                     .Where(s => s.TestId == testId)
+                    .OrderByDescending(s => s.SubmittedAt)
+                    .ThenByDescending(s => s.Id)
                     .Include(s => s.Student)
                     .Select(s => new
                     {
+                        id = s.Id,
                         studentName = s.Student != null ? (s.Student.FullName ?? s.Student.Email) : "Học sinh",
                         submittedAt = s.SubmittedAt,
                         timeSpent = s.TimeSpent,
@@ -360,7 +400,7 @@ namespace LyraSAT.Controllers
                         totalQuestions = s.TotalQuestions,
                         score = s.Score
                     })
-                    .ToListAsync();
+                    .ToPagedResultAsync(page, pageSize);
 
                 return Ok(submissions);
             }
