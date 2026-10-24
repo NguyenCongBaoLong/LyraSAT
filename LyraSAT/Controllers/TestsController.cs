@@ -111,17 +111,51 @@ namespace LyraSAT.Controllers
                 _context.Tests.Add(newTest);
                 await _context.SaveChangesAsync(); // Lưu để lấy TestId tự tăng
 
-                // 2. Đọc file Word (.docx) bằng thư viện NPOI
+                // 2. Đọc file Word (.docx) bằng thư viện NPOI, hỗ trợ cả đoạn văn, bảng và danh sách
                 using var stream = file.OpenReadStream();
                 var document = new XWPFDocument(stream);
 
-                var paragraphs = document.Paragraphs
-                    .Select(p => p.ParagraphText.Trim())
-                    .Where(text => !string.IsNullOrWhiteSpace(text))
-                    .ToList();
+                var extractedLines = new List<string>();
+
+                foreach (var element in document.BodyElements)
+                {
+                    if (element is XWPFParagraph paragraph)
+                    {
+                        string text = paragraph.ParagraphText.Trim();
+                        if (!string.IsNullOrWhiteSpace(text))
+                        {
+                            // Kiểm tra nếu đoạn văn bắt đầu bằng các ký tự gạch đầu dòng hoặc số thứ tự danh sách
+                            bool isBullet = text.StartsWith("•") || text.StartsWith("-") || text.StartsWith("*") ||
+                                            System.Text.RegularExpressions.Regex.IsMatch(text, @"^\d+[\.\)]\s") ||
+                                            System.Text.RegularExpressions.Regex.IsMatch(text, @"^[a-zA-Z][\.\)]\s");
+
+                            if (isBullet && !text.StartsWith("•") && !text.StartsWith("-") && !text.StartsWith("*"))
+                            {
+                                extractedLines.Add("• " + text);
+                            }
+                            else
+                            {
+                                extractedLines.Add(text);
+                            }
+                        }
+                    }
+                    else if (element is XWPFTable table)
+                    {
+                        // Đọc dữ liệu trong bảng và nối các ô lại với nhau bằng dấu |
+                        foreach (var row in table.Rows)
+                        {
+                            var rowCells = row.GetTableCells().Select(cell => cell.GetText().Trim());
+                            string rowText = string.Join(" | ", rowCells.Where(c => !string.IsNullOrEmpty(c)));
+                            if (!string.IsNullOrWhiteSpace(rowText))
+                            {
+                                extractedLines.Add(rowText);
+                            }
+                        }
+                    }
+                }
 
                 // 3. Bóc tách câu hỏi theo định dạng SAT mẫu của bạn
-                var questions = ParseSatWordFile(paragraphs, newTest.Id);
+                var questions = ParseSatWordFile(extractedLines, newTest.Id);
 
                 // KIỂM TRA: Nếu file không chứa câu hỏi nào theo đúng định dạng -> Xóa bài test vừa tạo và báo lỗi
                 if (questions.Count == 0)
@@ -141,7 +175,8 @@ namespace LyraSAT.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, new { message = "Lỗi khi xử lý file Word: " + ex.Message });
+                var innerMsg = ex.InnerException != null ? " -> " + ex.InnerException.Message : "";
+                return StatusCode(500, new { message = "Lỗi khi xử lý file Word: " + ex.Message + innerMsg });
             }
         }
 
