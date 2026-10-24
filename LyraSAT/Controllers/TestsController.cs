@@ -26,23 +26,20 @@ namespace LyraSAT.Controllers
         public async Task<IActionResult> GetTestsByClass(
             string classCode,
             [FromQuery] string? status,
+            [FromQuery] int? studentId,
             [FromQuery] int page = 1,
             [FromQuery] int pageSize = 8)
         {
+            if (status?.Equals("expired", StringComparison.OrdinalIgnoreCase) == true &&
+                (!studentId.HasValue || studentId.Value <= 0))
+            {
+                return BadRequest(new { message = "Mã học sinh không hợp lệ." });
+            }
+
             var now = DateTime.UtcNow;
             var tests = _context.Tests
                 .AsNoTracking()
-                .Where(t => t.ClassCode == classCode)
-                .Select(t => new
-                {
-                    t.Id,
-                    t.Title,
-                    t.ClassCode,
-                    t.Duration,
-                    t.Deadline,
-                    t.TestType,
-                    t.CreatedAt
-                });
+                .Where(t => t.ClassCode == classCode);
 
             tests = status?.ToLowerInvariant() switch
             {
@@ -52,9 +49,27 @@ namespace LyraSAT.Controllers
                 _ => tests
             };
 
+            if (status?.Equals("expired", StringComparison.OrdinalIgnoreCase) == true && studentId.HasValue)
+            {
+                tests = tests.Where(t => !_context.Submissions.Any(s =>
+                    s.TestId == t.Id &&
+                    s.StudentId == studentId.Value &&
+                    s.Status == "Completed"));
+            }
+
             var result = await tests
                 .OrderByDescending(t => t.CreatedAt)
                 .ThenByDescending(t => t.Id)
+                .Select(t => new
+                {
+                    t.Id,
+                    t.Title,
+                    t.ClassCode,
+                    t.Duration,
+                    t.Deadline,
+                    t.TestType,
+                    t.CreatedAt
+                })
                 .ToPagedResultAsync(page, pageSize);
             return Ok(result);
         }
