@@ -51,6 +51,8 @@ namespace LyraSAT.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("ClassCode");
+
                     b.HasIndex("TeacherId");
 
                     b.ToTable("Classes");
@@ -210,7 +212,11 @@ namespace LyraSAT.Migrations
 
                     b.HasIndex("StudentId");
 
+                    b.HasIndex("StudentId", "SubmittedAt", "Id");
+
                     b.HasIndex("TestId");
+
+                    b.HasIndex("TestId", "SubmittedAt", "Id");
 
                     b.ToTable("Submissions");
                 });
@@ -284,6 +290,10 @@ namespace LyraSAT.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("ClassCode", "CreatedAt", "Id");
+
+                    b.HasIndex("ClassCode", "Deadline");
+
                     b.ToTable("Tests");
                 });
 
@@ -343,6 +353,12 @@ namespace LyraSAT.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("Email");
+
+                    b.HasIndex("Role", "ClassCode", "FullName", "Id");
+
+                    b.HasIndex("Role", "FullName", "Id");
+
                     b.ToTable("Users");
                 });
 
@@ -378,6 +394,8 @@ namespace LyraSAT.Migrations
                         .HasColumnType("text");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("ClassCode", "SeriesName", "Id");
 
                     b.ToTable("Vocabularies");
                 });

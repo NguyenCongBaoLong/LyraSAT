@@ -25,6 +25,7 @@ namespace LyraSAT.Controllers
             {
                 // 1. Tìm thông tin giáo viên dựa vào email đăng nhập
                 var teacher = await _context.Users
+                    .AsNoTracking()
                     .FirstOrDefaultAsync(u => u.Email == email && u.Role == "Teacher");
 
                 if (teacher == null)
@@ -34,6 +35,7 @@ namespace LyraSAT.Controllers
 
                 // 2. Lấy danh sách lớp học có TeacherId khớp với Id của giáo viên này
                 var classes = await _context.Classes
+                    .AsNoTracking()
                     .Where(c => c.TeacherId == teacher.Id)
                     .Select(c => new
                     {

@@ -32,6 +32,7 @@ namespace LyraSAT.Controllers
             try
             {
                 var seriesList = await _context.Vocabularies
+                    .AsNoTracking()
                     .Where(v => v.ClassCode == classCode || v.ClassCode == null)
                     .Select(v => v.SeriesName)
                     .Distinct()
@@ -56,6 +57,7 @@ namespace LyraSAT.Controllers
             try
             {
                 var vocabList = await _context.Vocabularies
+                    .AsNoTracking()
                     .Where(v => (v.ClassCode == classCode || v.ClassCode == null) && v.SeriesName == seriesName)
                     .OrderBy(v => v.Id)
                     .Select(v => new
@@ -174,6 +176,7 @@ namespace LyraSAT.Controllers
             try
             {
                 var classList = await _context.Vocabularies
+                    .AsNoTracking()
                     .Where(v => v.ClassCode != null)
                     .Select(v => v.ClassCode)
                     .Distinct()

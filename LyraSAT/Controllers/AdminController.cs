@@ -79,6 +79,7 @@ namespace LyraSAT.Controllers
         public async Task<IActionResult> GetTeachers()
         {
             var teachers = await _context.Users
+                .AsNoTracking()
                 .Where(u => u.Role == "Teacher")
                 .OrderBy(u => u.FullName)
                 .Select(u => new { u.Id, u.FullName, u.Email })
@@ -93,6 +94,7 @@ namespace LyraSAT.Controllers
             [FromQuery] int pageSize = 8)
         {
             var teachers = await _context.Users
+                .AsNoTracking()
                 .Where(u => u.Role == "Teacher")
                 .OrderBy(u => u.FullName)
                 .ThenBy(u => u.Id)
@@ -141,6 +143,7 @@ namespace LyraSAT.Controllers
             try
             {
                 var classes = await _context.Classes
+                    .AsNoTracking()
                     .OrderBy(c => c.ClassCode)
                     .Select(c => new
                     {
@@ -166,6 +169,7 @@ namespace LyraSAT.Controllers
             [FromQuery] int pageSize = 8)
         {
             var classes = await _context.Classes
+                .AsNoTracking()
                 .OrderBy(c => c.ClassCode)
                 .ThenBy(c => c.Id)
                 .Select(c => new
@@ -248,6 +252,7 @@ namespace LyraSAT.Controllers
             try
             {
                 var students = await _context.Users
+                    .AsNoTracking()
                     .Where(u => u.Role == "Student" && u.ClassCode == classCode)
                     .OrderBy(u => u.FullName)
                     .ThenBy(u => u.Id)
@@ -272,6 +277,7 @@ namespace LyraSAT.Controllers
             try
             {
                 var availableStudents = await _context.Users
+                    .AsNoTracking()
                     .Where(u => u.Role == "Student" && (u.ClassCode == null || u.ClassCode != classCode))
                     .OrderBy(u => u.FullName)
                     .ThenBy(u => u.Id)

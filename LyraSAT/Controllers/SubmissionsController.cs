@@ -97,6 +97,7 @@ namespace LyraSAT.Controllers
             [FromQuery] int pageSize = 8)
         {
             var historyQuery = _context.Submissions
+                .AsNoTracking()
                 .Where(s => s.StudentId == studentId);
 
             if (!string.IsNullOrWhiteSpace(search))

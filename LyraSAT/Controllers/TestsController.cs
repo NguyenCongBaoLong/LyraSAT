@@ -31,7 +31,18 @@ namespace LyraSAT.Controllers
         {
             var now = DateTime.UtcNow;
             var tests = _context.Tests
-                .Where(t => t.ClassCode == classCode);
+                .AsNoTracking()
+                .Where(t => t.ClassCode == classCode)
+                .Select(t => new
+                {
+                    t.Id,
+                    t.Title,
+                    t.ClassCode,
+                    t.Duration,
+                    t.Deadline,
+                    t.TestType,
+                    t.CreatedAt
+                });
 
             tests = status?.ToLowerInvariant() switch
             {
@@ -321,6 +332,7 @@ namespace LyraSAT.Controllers
             [FromQuery] int pageSize = 10)
         {
             var results = await _context.Tests
+                .AsNoTracking()
                 .Where(t => t.ClassCode == classCode)
                 .OrderByDescending(t => t.CreatedAt)
                 .ThenByDescending(t => t.Id)
@@ -336,6 +348,7 @@ namespace LyraSAT.Controllers
             [FromQuery] int pageSize = 10)
         {
             var students = await _context.Users
+                .AsNoTracking()
                 .Where(u => u.ClassCode == classCode && u.Role == "Student")
                 .OrderBy(u => u.FullName)
                 .ThenBy(u => u.Id)
@@ -387,6 +400,7 @@ namespace LyraSAT.Controllers
             {
                 var submissions = await _context.Submissions
                     .Where(s => s.TestId == testId)
+                    .AsNoTracking()
                     .OrderByDescending(s => s.SubmittedAt)
                     .ThenByDescending(s => s.Id)
                     .Include(s => s.Student)
