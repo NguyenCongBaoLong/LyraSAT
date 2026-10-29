@@ -1,4 +1,4 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;
 
 namespace LyraSAT.Models
 {
@@ -15,6 +15,7 @@ namespace LyraSAT.Models
         public string? Description { get; set; }
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public int? MaxAttempts { get; set; }
+        public string? VideoExplanationUrl { get; set; }
 
         public ICollection<Question> Questions { get; set; }
         public ICollection<Submission> Submissions { get; set; }

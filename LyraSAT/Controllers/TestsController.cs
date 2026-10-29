@@ -121,7 +121,8 @@ namespace LyraSAT.Controllers
             [FromForm] int duration,
             [FromForm] string testType,
             [FromForm] DateTimeOffset? deadline,
-            [FromForm] int? maxAttempts, // Nhận giá trị từ form (có thể để trống)
+            [FromForm] int? maxAttempts,
+            [FromForm] string? videoExplanationUrl,
             IFormFile file)
         {
             if (file == null || file.Length == 0)
@@ -148,7 +149,8 @@ namespace LyraSAT.Controllers
                     TestType = testType,
                     Deadline = deadline?.UtcDateTime,
                     MaxAttempts = finalMaxAttempts,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = DateTime.UtcNow,
+                    VideoExplanationUrl = videoExplanationUrl
                 };
 
                 _context.Tests.Add(newTest);
@@ -388,6 +390,7 @@ namespace LyraSAT.Controllers
                     id = t.Id,
                     title = t.Title ?? "Bài test không tên",
                     duration = t.Duration,
+                    videoExplanationUrl = t.VideoExplanationUrl ?? "",
                     questions = t.Questions.Select(q => new
                     {
                         id = q.Id,

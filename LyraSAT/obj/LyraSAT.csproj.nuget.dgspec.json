@@ -1,31 +1,25 @@
 {
   "format": 1,
   "restore": {
-    "D:\\Test\\LyraSAT\\LyraSAT_BackEnd\\LyraSAT\\LyraSAT.csproj": {}
+    "C:\\Users\\akini\\Documents\\GitHub\\LyraSAT\\LyraSAT\\LyraSAT.csproj": {}
   },
   "projects": {
-    "D:\\Test\\LyraSAT\\LyraSAT_BackEnd\\LyraSAT\\LyraSAT.csproj": {
+    "C:\\Users\\akini\\Documents\\GitHub\\LyraSAT\\LyraSAT\\LyraSAT.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "D:\\Test\\LyraSAT\\LyraSAT_BackEnd\\LyraSAT\\LyraSAT.csproj",
+        "projectUniqueName": "C:\\Users\\akini\\Documents\\GitHub\\LyraSAT\\LyraSAT\\LyraSAT.csproj",
         "projectName": "LyraSAT",
-        "projectPath": "D:\\Test\\LyraSAT\\LyraSAT_BackEnd\\LyraSAT\\LyraSAT.csproj",
-        "packagesPath": "C:\\Users\\blong\\.nuget\\packages\\",
-        "outputPath": "D:\\Test\\LyraSAT\\LyraSAT_BackEnd\\LyraSAT\\obj\\",
+        "projectPath": "C:\\Users\\akini\\Documents\\GitHub\\LyraSAT\\LyraSAT\\LyraSAT.csproj",
+        "packagesPath": "C:\\Users\\akini\\.nuget\\packages\\",
+        "outputPath": "C:\\Users\\akini\\Documents\\GitHub\\LyraSAT\\LyraSAT\\obj\\",
         "projectStyle": "PackageReference",
-        "fallbackFolders": [
-          "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
-        ],
         "configFilePaths": [
-          "C:\\Users\\blong\\AppData\\Roaming\\NuGet\\NuGet.Config",
-          "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
-          "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
+          "C:\\Users\\akini\\AppData\\Roaming\\NuGet\\NuGet.Config"
         ],
         "originalTargetFrameworks": [
           "net8.0"
         ],
         "sources": {
-          "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
           "https://api.nuget.org/v3/index.json": {}
         },
         "frameworks": {
@@ -94,6 +88,24 @@
           ],
           "assetTargetFallback": true,
           "warn": true,
+          "downloadDependencies": [
+            {
+              "name": "Microsoft.AspNetCore.App.Ref",
+              "version": "[8.0.31, 8.0.31]"
+            },
+            {
+              "name": "Microsoft.NETCore.App.Host.win-x64",
+              "version": "[8.0.31, 8.0.31]"
+            },
+            {
+              "name": "Microsoft.NETCore.App.Ref",
+              "version": "[8.0.31, 8.0.31]"
+            },
+            {
+              "name": "Microsoft.WindowsDesktop.App.Ref",
+              "version": "[8.0.31, 8.0.31]"
+            }
+          ],
           "frameworkReferences": {
             "Microsoft.AspNetCore.App": {
               "privateAssets": "none"

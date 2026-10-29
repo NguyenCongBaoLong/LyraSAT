@@ -141,6 +141,7 @@ namespace LyraSAT.Controllers
             {
                 submissionId = submission.Id,
                 testTitle = submission.Test?.Title ?? "Bài test",
+                videoExplanationUrl = submission.Test?.VideoExplanationUrl ?? "",
                 correctCount = submission.CorrectCount,
                 totalQuestions = submission.TotalQuestions,
                 score = submission.Score,
@@ -158,6 +159,7 @@ namespace LyraSAT.Controllers
                         optionD = q.OptionD ?? "",
                         selectedAnswer = detail?.SelectedAnswer ?? "", // Đáp án học sinh chọn
                         correctAnswer = q.CorrectAnswer ?? "",          // Đáp án đúng thực tế
+                        videoExplanationUrl = q.VideoExplanationUrl ?? "",
                         isCorrect = detail?.IsCorrect ?? false
                     };
                 }).ToList()

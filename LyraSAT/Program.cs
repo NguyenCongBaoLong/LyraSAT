@@ -31,6 +31,8 @@ app.UseHttpsRedirection();
 // Phải đặt UseCors trước UseAuthorization và MapControllers
 app.UseCors("AllowAll");
 
+app.UseStaticFiles();
+
 app.UseAuthorization();
 
 app.MapControllers();
