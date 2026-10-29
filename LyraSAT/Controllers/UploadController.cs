@@ -19,7 +19,8 @@ namespace LyraSAT.Controllers
         }
 
         [HttpPost("attachment")]
-        public async Task<IActionResult> UploadAttachment([FromForm] IFormFile file, [FromForm] string? type)
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> UploadAttachment(IFormFile file, [FromForm] string? type)
         {
             try
             {
