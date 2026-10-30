@@ -73,6 +73,7 @@ namespace LyraSAT.Controllers
 
         // 1. Lấy toàn bộ bình luận của 1 câu hỏi theo dạng cây (Tree)
         [HttpGet("question/{questionId}")]
+        [HttpGet("/api/questions/{questionId}/comments")]
         public async Task<IActionResult> GetCommentsByQuestion(int questionId, [FromQuery] int? userId = null)
         {
             try
@@ -300,7 +301,7 @@ namespace LyraSAT.Controllers
 
         // 4. Xóa bình luận (Tác giả hoặc Giáo viên/Admin được xóa)
         [HttpDelete("{id}")]
-        public async Task<IActionResult> DeleteComment(int id, [FromQuery] int userId)
+        public async Task<IActionResult> DeleteComment(int id, [FromQuery] int? userId = null)
         {
             try
             {
@@ -313,13 +314,19 @@ namespace LyraSAT.Controllers
                     return NotFound(new { message = "Bình luận không tồn tại." });
                 }
 
-                var user = await _context.Users.FindAsync(userId);
+                int currentUserId = userId ?? 0;
+                if (currentUserId <= 0 && Request.Headers.TryGetValue("X-User-Id", out var headerId) && int.TryParse(headerId, out int parsedHeaderId))
+                {
+                    currentUserId = parsedHeaderId;
+                }
+
+                var user = await _context.Users.FindAsync(currentUserId);
                 if (user == null)
                 {
                     return Unauthorized(new { message = "Người dùng không hợp lệ." });
                 }
 
-                bool canDelete = comment.UserId == userId || user.Role == "Teacher" || user.Role == "Admin";
+                bool canDelete = comment.UserId == currentUserId || user.Role == "Teacher" || user.Role == "Admin";
                 if (!canDelete)
                 {
                     return Forbid("Bạn không có quyền xóa bình luận này.");
