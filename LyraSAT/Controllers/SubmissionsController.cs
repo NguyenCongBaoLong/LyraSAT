@@ -122,7 +122,8 @@ namespace LyraSAT.Controllers
                     TotalQuestions = s.TotalQuestions,
                     s.Score,
                     s.TimeSpent,
-                    s.SubmittedAt
+                    s.SubmittedAt,
+                    VideoExplanationUrl = s.Test != null ? s.Test.VideoExplanationUrl : null
                 })
                 .ToPagedResultAsync(page, pageSize);
 

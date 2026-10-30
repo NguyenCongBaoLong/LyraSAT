@@ -468,6 +468,8 @@ namespace LyraSAT.Controllers
                         allowed = false,
                         submissionCount = submissionCount,
                         maxAttempts = test.MaxAttempts.Value,
+                        videoExplanationUrl = test.VideoExplanationUrl,
+                        testTitle = test.Title,
                         message = $"Bạn đã hết số lần làm bài cho phép ({submissionCount}/{test.MaxAttempts.Value})."
                     });
                 }
