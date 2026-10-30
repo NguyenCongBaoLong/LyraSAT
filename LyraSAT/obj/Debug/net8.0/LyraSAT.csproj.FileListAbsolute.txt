@@ -522,3 +522,4 @@ C:\Users\akini\Documents\GitHub\LyraSAT\LyraSAT\obj\Debug\net8.0\refint\LyraSAT.
 C:\Users\akini\Documents\GitHub\LyraSAT\LyraSAT\obj\Debug\net8.0\LyraSAT.pdb
 C:\Users\akini\Documents\GitHub\LyraSAT\LyraSAT\obj\Debug\net8.0\LyraSAT.genruntimeconfig.cache
 C:\Users\akini\Documents\GitHub\LyraSAT\LyraSAT\obj\Debug\net8.0\ref\LyraSAT.dll
+C:\Users\akini\Documents\GitHub\LyraSAT\LyraSAT\bin\Debug\net8.0\LyraSAT.staticwebassets.runtime.json

@@ -69,7 +69,7 @@ namespace LyraSAT.Controllers
             await _context.SaveChangesAsync();
 
             // Trả về thông tin user kèm theo số streak mới nhất cho Frontend
-            return Ok(new { message = "Đăng nhập thành công!", user });
+            return Ok(new { message = "Đăng nhập thành công!", user = ToSafeUser(user) });
         }
 
         // Bổ sung API Đăng ký tài khoản mới - Đã áp dụng Hash Password
@@ -155,8 +155,27 @@ namespace LyraSAT.Controllers
 
             await _context.SaveChangesAsync();
 
-            return Ok(new { message = "Cập nhật thành công!", user });
+            return Ok(new { message = "Cập nhật thành công!", user = ToSafeUser(user) });
         }
+
+        // Chỉ trả về trường an toàn cho client, không bao giờ trả PasswordHash
+        private static object ToSafeUser(User u) => new
+        {
+            u.Id,
+            u.Email,
+            u.Role,
+            u.FullName,
+            u.ClassCode,
+            u.Avatar,
+            u.Dob,
+            u.Nickname,
+            u.TargetScore,
+            u.TuitionStatus,
+            u.StreakCount,
+            u.LastLoginDate,
+            u.ExamDate,
+            u.School
+        };
     }
 
     public class LoginDto

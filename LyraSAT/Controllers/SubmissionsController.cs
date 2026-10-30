@@ -30,6 +30,11 @@ namespace LyraSAT.Controllers
 
             if (test == null) return NotFound(new { message = "Bài test không tồn tại!" });
 
+            // Chặn nộp bài với studentId không tồn tại (tránh lỗi FK 500)
+            var studentExists = await _context.Users.AnyAsync(u => u.Id == model.StudentId);
+            if (!studentExists)
+                return BadRequest(new { message = "Tài khoản học sinh không tồn tại. Vui lòng đăng nhập lại!" });
+
             int totalQuestions = test.Questions.Count;
             int correctCount = 0;
             var submissionDetails = new List<SubmissionDetail>();
