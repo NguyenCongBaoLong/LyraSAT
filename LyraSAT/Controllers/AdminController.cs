@@ -314,5 +314,126 @@ namespace LyraSAT.Controllers
                 return StatusCode(500, new { message = "Lỗi server: " + ex.Message });
             }
         }
+
+        // 4. Lấy danh sách toàn bộ học sinh có phân trang & tìm kiếm
+        [HttpGet("students")]
+        public async Task<IActionResult> GetAllStudents(
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 10,
+            [FromQuery] string? search = null,
+            [FromQuery] string? classCode = null)
+        {
+            try
+            {
+                var query = _context.Users
+                    .Where(u => u.Role == "Student");
+
+                if (!string.IsNullOrWhiteSpace(search))
+                {
+                    search = search.Trim().ToLower();
+                    query = query.Where(u => u.FullName.ToLower().Contains(search) || u.Email.ToLower().Contains(search));
+                }
+
+                if (!string.IsNullOrWhiteSpace(classCode))
+                {
+                    query = query.Where(u => u.ClassCode == classCode);
+                }
+
+                var result = await query
+                    .OrderByDescending(u => u.Id)
+                    .Select(u => new
+                    {
+                        u.Id,
+                        u.FullName,
+                        u.Email,
+                        u.ClassCode,
+                        u.IsActive,
+                        u.TuitionStatus,
+                        u.LastLoginDate
+                    })
+                    .ToPagedResultAsync(page, pageSize);
+
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "Lỗi server: " + ex.Message });
+            }
+        }
+
+        // 5. Khóa hoặc Mở khóa đăng nhập tài khoản người dùng
+        [HttpPost("users/{id}/toggle-status")]
+        public async Task<IActionResult> ToggleUserStatus(int id)
+        {
+            try
+            {
+                var user = await _context.Users.FindAsync(id);
+                if (user == null) return NotFound(new { message = "Không tìm thấy người dùng." });
+
+                if (user.Role == "Admin") return BadRequest(new { message = "Không thể khóa tài khoản Quản trị viên." });
+
+                user.IsActive = !user.IsActive;
+                await _context.SaveChangesAsync();
+
+                string statusText = user.IsActive ? "kích hoạt" : "khóa đăng nhập";
+                return Ok(new
+                {
+                    message = $"Đã {statusText} tài khoản {user.FullName} ({user.Email}) thành công!",
+                    isActive = user.IsActive
+                });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "Lỗi server: " + ex.Message });
+            }
+        }
+
+        // 6. Xóa vĩnh viễn tài khoản người dùng (Xóa toàn bộ bài nộp và bình luận liên quan)
+        [HttpDelete("users/{id}")]
+        public async Task<IActionResult> DeleteUser(int id)
+        {
+            try
+            {
+                var user = await _context.Users.FindAsync(id);
+                if (user == null) return NotFound(new { message = "Không tìm thấy người dùng." });
+
+                if (user.Role == "Admin") return BadRequest(new { message = "Không thể xóa tài khoản Quản trị viên." });
+
+                // Dọn dẹp bài nộp và chi tiết bài nộp của học sinh
+                var submissions = await _context.Submissions.Where(s => s.StudentId == id).ToListAsync();
+                if (submissions.Any())
+                {
+                    var subIds = submissions.Select(s => s.Id).ToList();
+                    var details = await _context.SubmissionDetails.Where(sd => subIds.Contains(sd.SubmissionId)).ToListAsync();
+                    if (details.Any())
+                    {
+                        _context.SubmissionDetails.RemoveRange(details);
+                    }
+                    _context.Submissions.RemoveRange(submissions);
+                }
+
+                // Dọn dẹp bình luận và tương tác
+                var comments = await _context.QuestionComments.Where(c => c.UserId == id).ToListAsync();
+                if (comments.Any())
+                {
+                    var commentIds = comments.Select(c => c.Id).ToList();
+                    var reactions = await _context.CommentReactions.Where(r => commentIds.Contains(r.CommentId) || r.UserId == id).ToListAsync();
+                    if (reactions.Any())
+                    {
+                        _context.CommentReactions.RemoveRange(reactions);
+                    }
+                    _context.QuestionComments.RemoveRange(comments);
+                }
+
+                _context.Users.Remove(user);
+                await _context.SaveChangesAsync();
+
+                return Ok(new { message = $"Đã xóa vĩnh viễn tài khoản {user.FullName} ({user.Email}) thành công!" });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "Lỗi server: " + ex.Message });
+            }
+        }
     }
 }

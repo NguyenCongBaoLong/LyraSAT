@@ -37,6 +37,12 @@ namespace LyraSAT.Controllers
                 return Unauthorized(new { message = "Email hoặc mật khẩu không chính xác!" });
             }
 
+            // Kiểm tra trạng thái tài khoản có bị khóa không
+            if (!user.IsActive)
+            {
+                return StatusCode(403, new { message = "Tài khoản của bạn đã bị khóa hoặc hết hạn truy cập. Vui lòng liên hệ ban quản trị để được hỗ trợ!" });
+            }
+
             // --- Xử lý tính toán Streak ---
             var today = DateTime.UtcNow.Date;
             if (user.LastLoginDate == null)
@@ -171,6 +177,7 @@ namespace LyraSAT.Controllers
             u.Nickname,
             u.TargetScore,
             u.TuitionStatus,
+            u.IsActive,
             u.StreakCount,
             u.LastLoginDate,
             u.ExamDate,
