@@ -229,7 +229,7 @@ namespace LyraSAT.Controllers
             Question? currentQ = null;
             var passageLines = new List<string>();
             var questionLines = new List<string>();
-            bool isReadingPassage = false;
+            bool isReadingPassage = true;
 
             foreach (var rawLine in lines)
             {
@@ -238,13 +238,20 @@ namespace LyraSAT.Controllers
 
                 if (line.StartsWith("Text:", StringComparison.OrdinalIgnoreCase))
                 {
+                    // Nếu đang có câu hỏi dở dang trước đó, kiểm tra hợp lệ rồi mới thêm vào danh sách
                     if (currentQ != null)
                     {
                         currentQ.PassageText = string.Join("\n", passageLines).Trim();
                         currentQ.QuestionText = string.Join("\n", questionLines).Trim();
-                        questions.Add(currentQ);
+
+                        // KIỂM TRA AN TOÀN: Chỉ thêm khi có nội dung câu hỏi và bắt buộc phải có OptionA
+                        if (!string.IsNullOrEmpty(currentQ.QuestionText) && !string.IsNullOrEmpty(currentQ.OptionA))
+                        {
+                            questions.Add(currentQ);
+                        }
                     }
 
+                    // Khởi tạo câu hỏi mới
                     currentQ = new Question { TestId = testId };
                     passageLines.Clear();
                     questionLines.Clear();
@@ -309,15 +316,21 @@ namespace LyraSAT.Controllers
                 }
                 else
                 {
+                    // Trường hợp dòng rác ngoài lề trước khi gặp chữ "Text:" đầu tiên
                     passageLines.Add(line);
                 }
             }
 
+            // Kiểm tra và thêm câu hỏi cuối cùng của file
             if (currentQ != null)
             {
                 currentQ.PassageText = string.Join("\n", passageLines).Trim();
                 currentQ.QuestionText = string.Join("\n", questionLines).Trim();
-                questions.Add(currentQ);
+
+                if (!string.IsNullOrEmpty(currentQ.QuestionText) && !string.IsNullOrEmpty(currentQ.OptionA))
+                {
+                    questions.Add(currentQ);
+                }
             }
 
             return questions;
