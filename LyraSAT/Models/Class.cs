@@ -23,6 +23,6 @@ namespace LyraSAT.Models
         public virtual User? Teacher { get; set; }
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
-        public virtual ICollection<StudentClass>? StudentClasses { get; set; }
+        public virtual ICollection<StudentClass> StudentClasses { get; set; } = new List<StudentClass>();
     }
 }

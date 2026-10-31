@@ -389,17 +389,17 @@ namespace LyraSAT.Controllers
             [FromQuery] int page = 1,
             [FromQuery] int pageSize = 10)
         {
-            var students = await _context.Users
+            var students = await _context.StudentClasses
                 .AsNoTracking()
-                .Where(u => u.ClassCode == classCode && u.Role == "Student")
-                .OrderBy(u => u.FullName)
-                .ThenBy(u => u.Id)
-                .Select(u => new
+                .Where(sc => sc.Class != null && sc.Class.ClassCode == classCode && sc.User != null && sc.User.Role == "Student")
+                .OrderBy(sc => sc.User!.FullName)
+                .ThenBy(sc => sc.UserId)
+                .Select(sc => new
                 {
-                    u.Id,
-                    u.FullName,
-                    u.ClassCode,
-                    TuitionPaid = u.TuitionStatus ?? false
+                    sc.User!.Id,
+                    sc.User.FullName,
+                    ClassCode = classCode,
+                    TuitionPaid = sc.User.TuitionStatus ?? false
                 })
                 .ToPagedResultAsync(page, pageSize);
             return Ok(students);
@@ -590,16 +590,28 @@ namespace LyraSAT.Controllers
         {
             try
             {
-                var student = await _context.Users.FirstOrDefaultAsync(u => u.Id == studentId && u.ClassCode == classCode);
-                if (student == null)
+                var assignment = await _context.StudentClasses
+                    .Include(sc => sc.Class)
+                    .Include(sc => sc.User)
+                    .FirstOrDefaultAsync(sc => sc.UserId == studentId && sc.Class != null && sc.Class.ClassCode == classCode);
+                if (assignment == null)
                 {
                     return NotFound(new { message = "Không tìm thấy học sinh trong lớp này." });
                 }
 
-                student.ClassCode = null;
+                _context.StudentClasses.Remove(assignment);
+                if (assignment.User != null && assignment.User.ClassCode == classCode)
+                {
+                    var fallbackClassCode = await _context.StudentClasses
+                        .Where(sc => sc.UserId == studentId && sc.ClassId != assignment.ClassId)
+                        .OrderBy(sc => sc.AssignedAt)
+                        .Select(sc => sc.Class!.ClassCode)
+                        .FirstOrDefaultAsync();
+                    assignment.User.ClassCode = fallbackClassCode;
+                }
                 await _context.SaveChangesAsync();
 
-                return Ok(new { message = $"Đã gỡ học viên {student.FullName} ra khỏi lớp {classCode} thành công!" });
+                return Ok(new { message = $"Đã gỡ học viên {assignment.User?.FullName ?? "học viên"} ra khỏi lớp {classCode} thành công!" });
             }
             catch (Exception ex)
             {

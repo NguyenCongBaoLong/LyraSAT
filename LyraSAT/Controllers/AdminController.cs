@@ -67,6 +67,21 @@ namespace LyraSAT.Controllers
                 _context.Users.Add(newUser);
                 await _context.SaveChangesAsync();
 
+                if (newUser.Role == "Student" && !string.IsNullOrWhiteSpace(dto.ClassCode))
+                {
+                    var targetClass = await _context.Classes
+                        .FirstOrDefaultAsync(c => c.ClassCode == dto.ClassCode);
+                    if (targetClass != null)
+                    {
+                        _context.StudentClasses.Add(new StudentClass
+                        {
+                            UserId = newUser.Id,
+                            ClassId = targetClass.Id
+                        });
+                        await _context.SaveChangesAsync();
+                    }
+                }
+
                 return Ok(new { message = $"Tạo tài khoản {dto.Role} thành công!", userId = newUser.Id });
             }
             catch (Exception ex)
@@ -504,12 +519,12 @@ namespace LyraSAT.Controllers
         {
             try
             {
-                var students = await _context.Users
+                var students = await _context.StudentClasses
                     .AsNoTracking()
-                    .Where(u => u.Role == "Student" && u.ClassCode == classCode)
-                    .OrderBy(u => u.FullName)
-                    .ThenBy(u => u.Id)
-                    .Select(u => new { u.Id, u.FullName, u.Email })
+                    .Where(sc => sc.Class != null && sc.Class.ClassCode == classCode && sc.User != null && sc.User.Role == "Student")
+                    .OrderBy(sc => sc.User!.FullName)
+                    .ThenBy(sc => sc.UserId)
+                    .Select(sc => new { sc.User!.Id, sc.User.FullName, sc.User.Email })
                     .ToPagedResultAsync(page, pageSize);
 
                 return Ok(students);
@@ -529,9 +544,15 @@ namespace LyraSAT.Controllers
         {
             try
             {
+                var targetClass = await _context.Classes
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(c => c.ClassCode == classCode);
+                if (targetClass == null) return NotFound(new { message = "Không tìm thấy lớp học!" });
+
                 var availableStudents = await _context.Users
                     .AsNoTracking()
-                    .Where(u => u.Role == "Student" && (u.ClassCode == null || u.ClassCode != classCode))
+                    .Where(u => u.Role == "Student" &&
+                        !_context.StudentClasses.Any(sc => sc.UserId == u.Id && sc.ClassId == targetClass.Id))
                     .OrderBy(u => u.FullName)
                     .ThenBy(u => u.Id)
                     .Select(u => new { u.Id, u.FullName, u.Email, u.ClassCode })
@@ -557,7 +578,29 @@ namespace LyraSAT.Controllers
                     return NotFound(new { message = "Không tìm thấy học sinh!" });
                 }
 
-                student.ClassCode = classCode;
+                var targetClass = await _context.Classes
+                    .FirstOrDefaultAsync(c => c.ClassCode == classCode);
+                if (targetClass == null)
+                {
+                    return NotFound(new { message = "Không tìm thấy lớp học!" });
+                }
+
+                var alreadyAssigned = await _context.StudentClasses
+                    .AnyAsync(sc => sc.UserId == student.Id && sc.ClassId == targetClass.Id);
+                if (alreadyAssigned)
+                {
+                    return BadRequest(new { message = "Học sinh đã thuộc lớp này!" });
+                }
+
+                _context.StudentClasses.Add(new StudentClass
+                {
+                    UserId = student.Id,
+                    ClassId = targetClass.Id
+                });
+                if (string.IsNullOrWhiteSpace(student.ClassCode))
+                {
+                    student.ClassCode = classCode;
+                }
                 await _context.SaveChangesAsync();
 
                 return Ok(new { message = $"Đã thêm học sinh {student.FullName} vào lớp {classCode}!" });

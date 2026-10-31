@@ -24,5 +24,6 @@ namespace LyraSAT.Models
         public string? School { get; set; }
 
         public ICollection<Submission> Submissions { get; set; }
+        public ICollection<StudentClass> StudentClasses { get; set; } = new List<StudentClass>();
     }
 }

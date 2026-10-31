@@ -42,6 +42,22 @@ namespace LyraSAT.Data
             modelBuilder.Entity<User>()
                 .HasIndex(u => new { u.Role, u.FullName, u.Id });
 
+            modelBuilder.Entity<StudentClass>()
+                .HasIndex(sc => new { sc.UserId, sc.ClassId })
+                .IsUnique();
+
+            modelBuilder.Entity<StudentClass>()
+                .HasOne(sc => sc.User)
+                .WithMany(u => u.StudentClasses)
+                .HasForeignKey(sc => sc.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<StudentClass>()
+                .HasOne(sc => sc.Class)
+                .WithMany(c => c.StudentClasses)
+                .HasForeignKey(sc => sc.ClassId)
+                .OnDelete(DeleteBehavior.Cascade);
+
             modelBuilder.Entity<Submission>()
                 .HasIndex(s => new { s.StudentId, s.SubmittedAt, s.Id });
 

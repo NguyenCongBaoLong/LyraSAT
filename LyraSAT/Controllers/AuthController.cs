@@ -75,7 +75,7 @@ namespace LyraSAT.Controllers
             await _context.SaveChangesAsync();
 
             // Trả về thông tin user kèm theo số streak mới nhất cho Frontend
-            return Ok(new { message = "Đăng nhập thành công!", user = ToSafeUser(user) });
+            return Ok(new { message = "Đăng nhập thành công!", user = await ToSafeUser(_context, user) });
         }
 
         // Bổ sung API Đăng ký tài khoản mới - Đã áp dụng Hash Password
@@ -107,17 +107,25 @@ namespace LyraSAT.Controllers
             _context.Users.Add(newUser);
             await _context.SaveChangesAsync();
 
+            if (newUser.Role == "Student" && !string.IsNullOrWhiteSpace(model.ClassCode))
+            {
+                var targetClass = await _context.Classes
+                    .FirstOrDefaultAsync(c => c.ClassCode == model.ClassCode);
+                if (targetClass != null)
+                {
+                    _context.StudentClasses.Add(new StudentClass
+                    {
+                        UserId = newUser.Id,
+                        ClassId = targetClass.Id
+                    });
+                    await _context.SaveChangesAsync();
+                }
+            }
+
             return Ok(new
             {
                 message = "Đăng ký tài khoản thành công!",
-                user = new
-                {
-                    newUser.Id,
-                    newUser.Email,
-                    newUser.FullName,
-                    newUser.Role,
-                    newUser.ClassCode
-                }
+                user = await ToSafeUser(_context, newUser)
             });
         }
 
@@ -161,28 +169,47 @@ namespace LyraSAT.Controllers
 
             await _context.SaveChangesAsync();
 
-            return Ok(new { message = "Cập nhật thành công!", user = ToSafeUser(user) });
+            return Ok(new { message = "Cập nhật thành công!", user = await ToSafeUser(_context, user) });
         }
 
         // Chỉ trả về trường an toàn cho client, không bao giờ trả PasswordHash
-        private static object ToSafeUser(User u) => new
+        private static async Task<object> ToSafeUser(LyraSatDbContext context, User u)
         {
-            u.Id,
-            u.Email,
-            u.Role,
-            u.FullName,
-            u.ClassCode,
-            u.Avatar,
-            u.Dob,
-            u.Nickname,
-            u.TargetScore,
-            u.TuitionStatus,
-            u.IsActive,
-            u.StreakCount,
-            u.LastLoginDate,
-            u.ExamDate,
-            u.School
-        };
+            var classes = u.Role == "Student"
+                ? (await context.StudentClasses
+                    .AsNoTracking()
+                    .Where(sc => sc.UserId == u.Id && sc.Class != null)
+                    .OrderBy(sc => sc.AssignedAt)
+                    .Select(sc => new
+                    {
+                        classCode = sc.Class!.ClassCode,
+                        className = sc.Class.ClassName
+                    })
+                    .ToListAsync())
+                    .Cast<object>()
+                    .ToList()
+                : new List<object>();
+
+            return new
+            {
+                u.Id,
+                u.Email,
+                u.Role,
+                u.FullName,
+                u.ClassCode,
+                Classes = classes,
+                u.Avatar,
+                u.Dob,
+                u.Nickname,
+                u.TargetScore,
+                u.TuitionStatus,
+                u.IsActive,
+                u.StreakCount,
+                u.LastLoginDate,
+                u.ExamDate,
+                u.School
+            };
+        }
     }
 
     public class LoginDto
