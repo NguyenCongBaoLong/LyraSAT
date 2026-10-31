@@ -26,6 +26,7 @@ namespace LyraSAT.Controllers
         public string ClassCode { get; set; } = string.Empty;
         public string ClassName { get; set; } = string.Empty;
         public int? TeacherId { get; set; }
+        public List<int>? TeacherIds { get; set; } // Hỗ trợ 2-4 giáo viên cho 1 lớp
         public int? CreatedByAdminId { get; set; }
     }
 
@@ -116,16 +117,40 @@ namespace LyraSAT.Controllers
                     return BadRequest(new { message = "Mã lớp học này đã tồn tại!" });
                 }
 
+                var allTeacherIds = new List<int>();
+                if (dto.TeacherIds != null && dto.TeacherIds.Any())
+                {
+                    allTeacherIds.AddRange(dto.TeacherIds);
+                }
+                else if (dto.TeacherId.HasValue)
+                {
+                    allTeacherIds.Add(dto.TeacherId.Value);
+                }
+
+                var primaryTeacherId = allTeacherIds.FirstOrDefault();
+
                 var newClass = new Class
                 {
                     ClassCode = dto.ClassCode,
                     ClassName = dto.ClassName,
-                    TeacherId = dto.TeacherId,
+                    TeacherId = primaryTeacherId > 0 ? primaryTeacherId : dto.TeacherId,
                     CreatedByAdminId = dto.CreatedByAdminId,
                     CreatedAt = DateTime.UtcNow
                 };
 
                 _context.Classes.Add(newClass);
+
+                // Lưu danh sách giáo viên vào bảng ClassTeachers (2-4 giáo viên)
+                foreach (var tId in allTeacherIds.Distinct())
+                {
+                    _context.ClassTeachers.Add(new ClassTeacher
+                    {
+                        ClassCode = dto.ClassCode,
+                        TeacherId = tId,
+                        AssignedAt = DateTime.UtcNow
+                    });
+                }
+
                 await _context.SaveChangesAsync();
 
                 return Ok(new { message = "Tạo lớp học mới thành công!", classId = newClass.Id });
@@ -136,7 +161,7 @@ namespace LyraSAT.Controllers
             }
         }
 
-        // 4. Lấy danh sách toàn bộ lớp học kèm thông tin giáo viên phụ trách
+        // 4. Lấy danh sách toàn bộ lớp học kèm thông tin toàn bộ giáo viên phụ trách (hỗ trợ 2-4 giáo viên)
         [HttpGet("classes")]
         public async Task<IActionResult> GetClasses()
         {
@@ -155,7 +180,39 @@ namespace LyraSAT.Controllers
                         createdAt = c.CreatedAt
                     })
                     .ToListAsync();
-                return Ok(classes);
+
+                var classCodes = classes.Select(c => c.classCode).ToList();
+                var classTeachers = await _context.ClassTeachers
+                    .AsNoTracking()
+                    .Where(ct => classCodes.Contains(ct.ClassCode))
+                    .Include(ct => ct.Teacher)
+                    .ToListAsync();
+
+                var result = classes.Select(c =>
+                {
+                    var teachersOfClass = classTeachers
+                        .Where(ct => ct.ClassCode == c.classCode && ct.Teacher != null)
+                        .Select(ct => new { id = ct.Teacher!.Id, fullName = ct.Teacher.FullName, email = ct.Teacher.Email })
+                        .ToList();
+
+                    if (!teachersOfClass.Any() && c.teacherId.HasValue && c.teacherName != "Chưa phân công")
+                    {
+                        teachersOfClass.Add(new { id = c.teacherId.Value, fullName = c.teacherName, email = "" });
+                    }
+
+                    return new
+                    {
+                        c.id,
+                        c.classCode,
+                        c.className,
+                        c.teacherId,
+                        c.teacherName,
+                        teachers = teachersOfClass,
+                        c.createdAt
+                    };
+                });
+
+                return Ok(result);
             }
             catch (Exception ex)
             {
@@ -168,7 +225,7 @@ namespace LyraSAT.Controllers
             [FromQuery] int page = 1,
             [FromQuery] int pageSize = 8)
         {
-            var classes = await _context.Classes
+            var paged = await _context.Classes
                 .AsNoTracking()
                 .OrderBy(c => c.ClassCode)
                 .ThenBy(c => c.Id)
@@ -183,12 +240,51 @@ namespace LyraSAT.Controllers
                 })
                 .ToPagedResultAsync(page, pageSize);
 
-            return Ok(classes);
+            var classCodes = paged.Items.Select(c => c.classCode).ToList();
+            var classTeachers = await _context.ClassTeachers
+                .AsNoTracking()
+                .Where(ct => classCodes.Contains(ct.ClassCode))
+                .Include(ct => ct.Teacher)
+                .ToListAsync();
+
+            var mappedItems = paged.Items.Select(c =>
+            {
+                var teachersOfClass = classTeachers
+                    .Where(ct => ct.ClassCode == c.classCode && ct.Teacher != null)
+                    .Select(ct => new { id = ct.Teacher!.Id, fullName = ct.Teacher.FullName, email = ct.Teacher.Email })
+                    .ToList();
+
+                if (!teachersOfClass.Any() && c.teacherId.HasValue && c.teacherName != "Chưa phân công")
+                {
+                    teachersOfClass.Add(new { id = c.teacherId.Value, fullName = c.teacherName, email = "" });
+                }
+
+                return new
+                {
+                    c.id,
+                    c.classCode,
+                    c.className,
+                    c.teacherId,
+                    c.teacherName,
+                    teachers = teachersOfClass,
+                    c.createdAt
+                };
+            }).ToList();
+
+            return Ok(new
+            {
+                paged.Page,
+                paged.PageSize,
+                paged.TotalCount,
+                paged.TotalPages,
+                items = mappedItems
+            });
         }
 
         public class AssignTeacherDto
         {
             public int? TeacherId { get; set; }
+            public List<int>? TeacherIds { get; set; } // Hỗ trợ gán 2-4 giáo viên
         }
 
         // 1. API Phân công / Cập nhật giáo viên cho lớp học
@@ -203,10 +299,134 @@ namespace LyraSAT.Controllers
                     return NotFound(new { message = "Không tìm thấy lớp học!" });
                 }
 
-                targetClass.TeacherId = dto.TeacherId;
+                var teacherIdsToAssign = new List<int>();
+                if (dto.TeacherIds != null && dto.TeacherIds.Any())
+                {
+                    teacherIdsToAssign.AddRange(dto.TeacherIds);
+                }
+                else if (dto.TeacherId.HasValue)
+                {
+                    teacherIdsToAssign.Add(dto.TeacherId.Value);
+                }
+
+                targetClass.TeacherId = teacherIdsToAssign.FirstOrDefault() > 0 ? teacherIdsToAssign.First() : dto.TeacherId;
+
+                // Xóa và cập nhật lại danh sách giáo viên trong ClassTeachers
+                var existingClassTeachers = await _context.ClassTeachers
+                    .Where(ct => ct.ClassCode == targetClass.ClassCode)
+                    .ToListAsync();
+                _context.ClassTeachers.RemoveRange(existingClassTeachers);
+
+                foreach (var tId in teacherIdsToAssign.Distinct())
+                {
+                    _context.ClassTeachers.Add(new ClassTeacher
+                    {
+                        ClassCode = targetClass.ClassCode,
+                        TeacherId = tId,
+                        AssignedAt = DateTime.UtcNow
+                    });
+                }
+
                 await _context.SaveChangesAsync();
 
-                return Ok(new { message = "Phân công giáo viên thành công!" });
+                return Ok(new { message = $"Phân công {teacherIdsToAssign.Distinct().Count()} giáo viên cho lớp {targetClass.ClassCode} thành công!" });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "Lỗi server: " + ex.Message });
+            }
+        }
+
+        // Lấy danh sách toàn bộ giáo viên của 1 lớp học (hỗ trợ 2-4 giáo viên)
+        [HttpGet("classes/{classCode}/teachers")]
+        public async Task<IActionResult> GetClassTeachers(string classCode)
+        {
+            try
+            {
+                var targetClass = await _context.Classes.FirstOrDefaultAsync(c => c.ClassCode == classCode);
+                if (targetClass == null) return NotFound(new { message = "Không tìm thấy lớp học." });
+
+                var teacherIds = await _context.ClassTeachers
+                    .Where(ct => ct.ClassCode == classCode)
+                    .Select(ct => ct.TeacherId)
+                    .ToListAsync();
+
+                if (targetClass.TeacherId.HasValue && !teacherIds.Contains(targetClass.TeacherId.Value))
+                {
+                    teacherIds.Add(targetClass.TeacherId.Value);
+                }
+
+                var teachers = await _context.Users
+                    .Where(u => teacherIds.Contains(u.Id))
+                    .Select(u => new
+                    {
+                        u.Id,
+                        u.FullName,
+                        u.Email
+                    })
+                    .ToListAsync();
+
+                return Ok(teachers);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "Lỗi server: " + ex.Message });
+            }
+        }
+
+        // Thêm 1 giáo viên vào lớp học (Hỗ trợ lớp có 2-4 giáo viên)
+        [HttpPost("classes/{classCode}/teachers")]
+        public async Task<IActionResult> AddTeacherToClass(string classCode, [FromBody] AssignTeacherDto dto)
+        {
+            try
+            {
+                if (!dto.TeacherId.HasValue) return BadRequest(new { message = "Vui lòng chọn giáo viên cần thêm." });
+
+                var targetClass = await _context.Classes.FirstOrDefaultAsync(c => c.ClassCode == classCode);
+                if (targetClass == null) return NotFound(new { message = "Không tìm thấy lớp học." });
+
+                bool exists = await _context.ClassTeachers.AnyAsync(ct => ct.ClassCode == classCode && ct.TeacherId == dto.TeacherId.Value);
+                if (!exists)
+                {
+                    _context.ClassTeachers.Add(new ClassTeacher
+                    {
+                        ClassCode = classCode,
+                        TeacherId = dto.TeacherId.Value,
+                        AssignedAt = DateTime.UtcNow
+                    });
+                    if (!targetClass.TeacherId.HasValue) targetClass.TeacherId = dto.TeacherId.Value;
+                    await _context.SaveChangesAsync();
+                }
+
+                return Ok(new { message = $"Đã thêm giáo viên vào lớp {classCode} thành công!" });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "Lỗi server: " + ex.Message });
+            }
+        }
+
+        // Gỡ 1 giáo viên khỏi lớp học
+        [HttpDelete("classes/{classCode}/teachers/{teacherId}")]
+        public async Task<IActionResult> RemoveTeacherFromClass(string classCode, int teacherId)
+        {
+            try
+            {
+                var ct = await _context.ClassTeachers.FirstOrDefaultAsync(x => x.ClassCode == classCode && x.TeacherId == teacherId);
+                if (ct != null)
+                {
+                    _context.ClassTeachers.Remove(ct);
+                }
+
+                var targetClass = await _context.Classes.FirstOrDefaultAsync(c => c.ClassCode == classCode);
+                if (targetClass != null && targetClass.TeacherId == teacherId)
+                {
+                    var remaining = await _context.ClassTeachers.FirstOrDefaultAsync(x => x.ClassCode == classCode && x.TeacherId != teacherId);
+                    targetClass.TeacherId = remaining?.TeacherId;
+                }
+
+                await _context.SaveChangesAsync();
+                return Ok(new { message = $"Đã gỡ giáo viên khỏi lớp {classCode} thành công!" });
             }
             catch (Exception ex)
             {

@@ -202,34 +202,46 @@ namespace LyraSAT.Controllers
                             _context.Notifications.Add(replyNotif);
                         }
                     }
-                    // Trường hợp 2: Học sinh hỏi mới trên câu hỏi -> Gửi thông báo cho Giáo viên của lớp
+                    // Trường hợp 2: Học sinh hỏi mới trên câu hỏi -> Gửi thông báo cho toàn bộ Giáo viên của lớp (hỗ trợ lớp 2-4 giáo viên)
                     else if (user.Role == "Student" && question.Test != null)
                     {
                         var targetClass = await _context.Classes.FirstOrDefaultAsync(c => c.ClassCode == question.Test.ClassCode);
-                        int? teacherId = targetClass?.TeacherId;
+                        var teacherIds = await _context.ClassTeachers
+                            .Where(ct => ct.ClassCode == question.Test.ClassCode)
+                            .Select(ct => ct.TeacherId)
+                            .ToListAsync();
 
-                        if (!teacherId.HasValue)
+                        if (targetClass != null && targetClass.TeacherId.HasValue && !teacherIds.Contains(targetClass.TeacherId.Value))
                         {
-                            var teacherUser = await _context.Users.FirstOrDefaultAsync(u => u.Role == "Teacher" && u.ClassCode == question.Test.ClassCode);
-                            teacherId = teacherUser?.Id;
+                            teacherIds.Add(targetClass.TeacherId.Value);
                         }
 
-                        if (teacherId.HasValue && teacherId.Value != dto.UserId)
+                        if (!teacherIds.Any())
                         {
-                            var teacherNotif = new Notification
+                            var teacherUser = await _context.Users.FirstOrDefaultAsync(u => u.Role == "Teacher" && u.ClassCode == question.Test.ClassCode);
+                            if (teacherUser != null) teacherIds.Add(teacherUser.Id);
+                        }
+
+                        // Gửi thông báo chuông cho TẤT CẢ các giáo viên phụ trách lớp này (2-4 giáo viên)
+                        foreach (var tId in teacherIds.Distinct())
+                        {
+                            if (tId != dto.UserId)
                             {
-                                UserId = teacherId.Value,
-                                ActorId = dto.UserId,
-                                Type = "question_comment",
-                                Title = $"{user.FullName} có câu hỏi mới về đề '{question.Test.Title}'",
-                                Content = string.IsNullOrWhiteSpace(dto.Content) ? "Đã gửi câu hỏi với tệp đính kèm" : (dto.Content.Length > 80 ? dto.Content.Substring(0, 80) + "..." : dto.Content),
-                                QuestionId = dto.QuestionId,
-                                TestId = question.TestId,
-                                CommentId = newComment.Id,
-                                IsRead = false,
-                                CreatedAt = DateTime.UtcNow
-                            };
-                            _context.Notifications.Add(teacherNotif);
+                                var teacherNotif = new Notification
+                                {
+                                    UserId = tId,
+                                    ActorId = dto.UserId,
+                                    Type = "question_comment",
+                                    Title = $"{user.FullName} có câu hỏi mới về đề '{question.Test.Title}'",
+                                    Content = string.IsNullOrWhiteSpace(dto.Content) ? "Đã gửi câu hỏi với tệp đính kèm" : (dto.Content.Length > 80 ? dto.Content.Substring(0, 80) + "..." : dto.Content),
+                                    QuestionId = dto.QuestionId,
+                                    TestId = question.TestId,
+                                    CommentId = newComment.Id,
+                                    IsRead = false,
+                                    CreatedAt = DateTime.UtcNow
+                                };
+                                _context.Notifications.Add(teacherNotif);
+                            }
                         }
                     }
 

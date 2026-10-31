@@ -33,15 +33,22 @@ namespace LyraSAT.Controllers
                     return Ok(new List<object>()); // Không tìm thấy giáo viên -> trả về mảng rỗng
                 }
 
-                // 2. Lấy danh sách lớp học có TeacherId khớp với Id của giáo viên này
+                // 2. Lấy danh sách lớp học mà giáo viên này phụ trách (hỗ trợ lớp có 2-4 giáo viên)
+                var assignedClassCodes = await _context.ClassTeachers
+                    .AsNoTracking()
+                    .Where(ct => ct.TeacherId == teacher.Id)
+                    .Select(ct => ct.ClassCode)
+                    .ToListAsync();
+
                 var classes = await _context.Classes
                     .AsNoTracking()
-                    .Where(c => c.TeacherId == teacher.Id)
+                    .Where(c => c.TeacherId == teacher.Id || assignedClassCodes.Contains(c.ClassCode))
                     .Select(c => new
                     {
                         code = c.ClassCode,
                         name = c.ClassName ?? c.ClassCode
                     })
+                    .Distinct()
                     .ToListAsync();
 
                 return Ok(classes);

@@ -20,6 +20,7 @@ namespace LyraSAT.Data
         public DbSet<QuestionComment> QuestionComments { get; set; }
         public DbSet<CommentReaction> CommentReactions { get; set; }
         public DbSet<Notification> Notifications { get; set; }
+        public DbSet<ClassTeacher> ClassTeachers { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
