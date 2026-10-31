@@ -1,4 +1,4 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;
 
 namespace LyraSAT.Models
 {
@@ -16,6 +16,7 @@ namespace LyraSAT.Models
         public string? Nickname { get; set; }
         public int? TargetScore { get; set; }
         public bool? TuitionStatus { get; set; }
+        public bool IsActive { get; set; } = true;
 
         public int StreakCount { get; set; } = 1;
         public DateTime? LastLoginDate { get; set; }

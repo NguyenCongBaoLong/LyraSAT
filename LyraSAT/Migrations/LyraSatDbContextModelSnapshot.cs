@@ -58,6 +58,87 @@ namespace LyraSAT.Migrations
                     b.ToTable("Classes");
                 });
 
+            modelBuilder.Entity("LyraSAT.Models.CommentReaction", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("CommentId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ReactionType")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.HasIndex("CommentId", "UserId")
+                        .IsUnique();
+
+                    b.ToTable("CommentReactions");
+                });
+
+            modelBuilder.Entity("LyraSAT.Models.Notification", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int?>("ActorId")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("CommentId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Content")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsRead")
+                        .HasColumnType("boolean");
+
+                    b.Property<int?>("QuestionId")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("TestId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ActorId");
+
+                    b.HasIndex("UserId", "IsRead", "CreatedAt");
+
+                    b.ToTable("Notifications");
+                });
+
             modelBuilder.Entity("LyraSAT.Models.Question", b =>
                 {
                     b.Property<int>("Id")
@@ -123,6 +204,15 @@ namespace LyraSAT.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<string>("AttachmentType")
+                        .HasColumnType("text");
+
+                    b.Property<string>("AttachmentUrl")
+                        .HasColumnType("text");
+
+                    b.Property<int?>("AudioDuration")
+                        .HasColumnType("integer");
+
                     b.Property<string>("Content")
                         .IsRequired()
                         .HasColumnType("text");
@@ -130,20 +220,40 @@ namespace LyraSAT.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsEdited")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsPinned")
+                        .HasColumnType("boolean");
+
                     b.Property<int?>("ParentCommentId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("PinnedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("PinnedByUserId")
                         .HasColumnType("integer");
 
                     b.Property<int>("QuestionId")
                         .HasColumnType("integer");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<int>("UserId")
                         .HasColumnType("integer");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("QuestionId");
+                    b.HasIndex("ParentCommentId");
 
                     b.HasIndex("UserId");
+
+                    b.HasIndex("QuestionId", "IsPinned", "CreatedAt");
 
                     b.ToTable("QuestionComments");
                 });
@@ -210,11 +320,7 @@ namespace LyraSAT.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("StudentId");
-
                     b.HasIndex("StudentId", "SubmittedAt", "Id");
-
-                    b.HasIndex("TestId");
 
                     b.HasIndex("TestId", "SubmittedAt", "Id");
 
@@ -288,11 +394,14 @@ namespace LyraSAT.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("VideoExplanationUrl")
+                        .HasColumnType("text");
+
                     b.HasKey("Id");
 
-                    b.HasIndex("ClassCode", "CreatedAt", "Id");
-
                     b.HasIndex("ClassCode", "Deadline");
+
+                    b.HasIndex("ClassCode", "CreatedAt", "Id");
 
                     b.ToTable("Tests");
                 });
@@ -355,9 +464,9 @@ namespace LyraSAT.Migrations
 
                     b.HasIndex("Email");
 
-                    b.HasIndex("Role", "ClassCode", "FullName", "Id");
-
                     b.HasIndex("Role", "FullName", "Id");
+
+                    b.HasIndex("Role", "ClassCode", "FullName", "Id");
 
                     b.ToTable("Users");
                 });
@@ -409,6 +518,43 @@ namespace LyraSAT.Migrations
                     b.Navigation("Teacher");
                 });
 
+            modelBuilder.Entity("LyraSAT.Models.CommentReaction", b =>
+                {
+                    b.HasOne("LyraSAT.Models.QuestionComment", "Comment")
+                        .WithMany("Reactions")
+                        .HasForeignKey("CommentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("LyraSAT.Models.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Comment");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("LyraSAT.Models.Notification", b =>
+                {
+                    b.HasOne("LyraSAT.Models.User", "Actor")
+                        .WithMany()
+                        .HasForeignKey("ActorId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("LyraSAT.Models.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Actor");
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("LyraSAT.Models.Question", b =>
                 {
                     b.HasOne("LyraSAT.Models.Test", "Test")
@@ -422,6 +568,11 @@ namespace LyraSAT.Migrations
 
             modelBuilder.Entity("LyraSAT.Models.QuestionComment", b =>
                 {
+                    b.HasOne("LyraSAT.Models.QuestionComment", "ParentComment")
+                        .WithMany("Replies")
+                        .HasForeignKey("ParentCommentId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("LyraSAT.Models.Question", "Question")
                         .WithMany()
                         .HasForeignKey("QuestionId")
@@ -433,6 +584,8 @@ namespace LyraSAT.Migrations
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.Navigation("ParentComment");
 
                     b.Navigation("Question");
 
@@ -499,6 +652,13 @@ namespace LyraSAT.Migrations
             modelBuilder.Entity("LyraSAT.Models.Class", b =>
                 {
                     b.Navigation("StudentClasses");
+                });
+
+            modelBuilder.Entity("LyraSAT.Models.QuestionComment", b =>
+                {
+                    b.Navigation("Reactions");
+
+                    b.Navigation("Replies");
                 });
 
             modelBuilder.Entity("LyraSAT.Models.Submission", b =>

@@ -1,4 +1,4 @@
-﻿using LyraSAT.Models;
+using LyraSAT.Models;
 using Microsoft.EntityFrameworkCore;
 
 namespace LyraSAT.Data
@@ -18,6 +18,9 @@ namespace LyraSAT.Data
         public DbSet<Class> Classes { get; set; }
         public DbSet<StudentClass> StudentClasses { get; set; }
         public DbSet<QuestionComment> QuestionComments { get; set; }
+        public DbSet<CommentReaction> CommentReactions { get; set; }
+        public DbSet<Notification> Notifications { get; set; }
+        public DbSet<ClassTeacher> ClassTeachers { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -47,6 +50,46 @@ namespace LyraSAT.Data
 
             modelBuilder.Entity<Vocabulary>()
                 .HasIndex(v => new { v.ClassCode, v.SeriesName, v.Id });
+
+            // Indexes and Relations for Comments
+            modelBuilder.Entity<QuestionComment>()
+                .HasIndex(c => new { c.QuestionId, c.IsPinned, c.CreatedAt });
+
+            modelBuilder.Entity<QuestionComment>()
+                .HasIndex(c => c.ParentCommentId);
+
+            modelBuilder.Entity<QuestionComment>()
+                .HasOne(c => c.ParentComment)
+                .WithMany(c => c.Replies)
+                .HasForeignKey(c => c.ParentCommentId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // Indexes and Relations for Reactions
+            modelBuilder.Entity<CommentReaction>()
+                .HasIndex(r => new { r.CommentId, r.UserId })
+                .IsUnique();
+
+            modelBuilder.Entity<CommentReaction>()
+                .HasOne(r => r.Comment)
+                .WithMany(c => c.Reactions)
+                .HasForeignKey(r => r.CommentId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Indexes and Relations for Notifications
+            modelBuilder.Entity<Notification>()
+                .HasIndex(n => new { n.UserId, n.IsRead, n.CreatedAt });
+
+            modelBuilder.Entity<Notification>()
+                .HasOne(n => n.User)
+                .WithMany()
+                .HasForeignKey(n => n.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<Notification>()
+                .HasOne(n => n.Actor)
+                .WithMany()
+                .HasForeignKey(n => n.ActorId)
+                .OnDelete(DeleteBehavior.SetNull);
 
             base.OnModelCreating(modelBuilder);
         }

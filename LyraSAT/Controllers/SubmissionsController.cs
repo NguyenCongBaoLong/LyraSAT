@@ -30,6 +30,11 @@ namespace LyraSAT.Controllers
 
             if (test == null) return NotFound(new { message = "Bài test không tồn tại!" });
 
+            // Chặn nộp bài với studentId không tồn tại (tránh lỗi FK 500)
+            var studentExists = await _context.Users.AnyAsync(u => u.Id == model.StudentId);
+            if (!studentExists)
+                return BadRequest(new { message = "Tài khoản học sinh không tồn tại. Vui lòng đăng nhập lại!" });
+
             int totalQuestions = test.Questions.Count;
             int correctCount = 0;
             var submissionDetails = new List<SubmissionDetail>();
@@ -117,7 +122,8 @@ namespace LyraSAT.Controllers
                     TotalQuestions = s.TotalQuestions,
                     s.Score,
                     s.TimeSpent,
-                    s.SubmittedAt
+                    s.SubmittedAt,
+                    VideoExplanationUrl = s.Test != null ? s.Test.VideoExplanationUrl : null
                 })
                 .ToPagedResultAsync(page, pageSize);
 
@@ -141,6 +147,7 @@ namespace LyraSAT.Controllers
             {
                 submissionId = submission.Id,
                 testTitle = submission.Test?.Title ?? "Bài test",
+                videoExplanationUrl = submission.Test?.VideoExplanationUrl ?? "",
                 correctCount = submission.CorrectCount,
                 totalQuestions = submission.TotalQuestions,
                 score = submission.Score,
@@ -158,6 +165,7 @@ namespace LyraSAT.Controllers
                         optionD = q.OptionD ?? "",
                         selectedAnswer = detail?.SelectedAnswer ?? "", // Đáp án học sinh chọn
                         correctAnswer = q.CorrectAnswer ?? "",          // Đáp án đúng thực tế
+                        videoExplanationUrl = q.VideoExplanationUrl ?? "",
                         isCorrect = detail?.IsCorrect ?? false
                     };
                 }).ToList()
