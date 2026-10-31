@@ -122,7 +122,6 @@ namespace LyraSAT.Controllers
             [FromForm] string testType,
             [FromForm] DateTimeOffset? deadline,
             [FromForm] int? maxAttempts,
-            [FromForm] string? videoExplanationUrl,
             IFormFile file)
         {
             if (file == null || file.Length == 0)
@@ -137,10 +136,9 @@ namespace LyraSAT.Controllers
 
             try
             {
-                // Nếu giáo viên không nhập hoặc để <= 0 thì set là null (làm không giới hạn)
                 int? finalMaxAttempts = (maxAttempts.HasValue && maxAttempts.Value > 0) ? maxAttempts.Value : null;
 
-                // 1. Tạo bài test mới trong cơ sở dữ liệu kèm Deadline và MaxAttempts
+                // 1. Tạo bài test mới trong cơ sở dữ liệu
                 var newTest = new Test
                 {
                     Title = title,
@@ -149,14 +147,13 @@ namespace LyraSAT.Controllers
                     TestType = testType,
                     Deadline = deadline?.UtcDateTime,
                     MaxAttempts = finalMaxAttempts,
-                    CreatedAt = DateTime.UtcNow,
-                    VideoExplanationUrl = videoExplanationUrl
+                    CreatedAt = DateTime.UtcNow
                 };
 
                 _context.Tests.Add(newTest);
                 await _context.SaveChangesAsync(); // Lưu để lấy TestId tự tăng
 
-                // 2. Đọc file Word (.docx) bằng thư viện NPOI, hỗ trợ cả đoạn văn, bảng và danh sách
+                // 2. Đọc file Word (.docx) bằng thư viện NPOI, hỗ trợ trích xuất cả Paragraph và Table
                 using var stream = file.OpenReadStream();
                 var document = new XWPFDocument(stream);
 
@@ -169,28 +166,17 @@ namespace LyraSAT.Controllers
                         string text = paragraph.ParagraphText.Trim();
                         if (!string.IsNullOrWhiteSpace(text))
                         {
-                            // Kiểm tra nếu đoạn văn bắt đầu bằng các ký tự gạch đầu dòng hoặc số thứ tự danh sách
-                            bool isBullet = text.StartsWith("•") || text.StartsWith("-") || text.StartsWith("*") ||
-                                            System.Text.RegularExpressions.Regex.IsMatch(text, @"^\d+[\.\)]\s") ||
-                                            System.Text.RegularExpressions.Regex.IsMatch(text, @"^[a-zA-Z][\.\)]\s");
-
-                            if (isBullet && !text.StartsWith("•") && !text.StartsWith("-") && !text.StartsWith("*"))
-                            {
-                                extractedLines.Add("• " + text);
-                            }
-                            else
-                            {
-                                extractedLines.Add(text);
-                            }
+                            extractedLines.Add(text);
                         }
                     }
                     else if (element is XWPFTable table)
                     {
-                        // Đọc dữ liệu trong bảng và nối các ô lại với nhau bằng dấu |
+                        // XỬ LÝ BẢNG: Duyệt từng hàng và từng ô, nối lại bằng dấu |
                         foreach (var row in table.Rows)
                         {
                             var rowCells = row.GetTableCells().Select(cell => cell.GetText().Trim());
                             string rowText = string.Join(" | ", rowCells.Where(c => !string.IsNullOrEmpty(c)));
+
                             if (!string.IsNullOrWhiteSpace(rowText))
                             {
                                 extractedLines.Add(rowText);
@@ -199,10 +185,10 @@ namespace LyraSAT.Controllers
                     }
                 }
 
-                // 3. Bóc tách câu hỏi theo định dạng SAT mẫu của bạn
+                // 3. Bóc tách câu hỏi SAT
                 var questions = ParseSatWordFile(extractedLines, newTest.Id);
 
-                // KIỂM TRA: Nếu file không chứa câu hỏi nào theo đúng định dạng -> Xóa bài test vừa tạo và báo lỗi
+                // KIỂM TRA: Nếu không có câu hỏi hợp lệ -> Xóa bài test vừa tạo và báo lỗi
                 if (questions.Count == 0)
                 {
                     _context.Tests.Remove(newTest);
@@ -210,11 +196,8 @@ namespace LyraSAT.Controllers
                     return BadRequest(new { message = "File Word không đúng cấu trúc định dạng câu hỏi SAT (Thiếu các từ khóa Text:, Question:, hoặc các đáp án A, B, C, D)!" });
                 }
 
-                if (questions.Count > 0)
-                {
-                    _context.Questions.AddRange(questions);
-                    await _context.SaveChangesAsync();
-                }
+                _context.Questions.AddRange(questions);
+                await _context.SaveChangesAsync();
 
                 return Ok(new { message = $"Tải lên và xử lý thành công {questions.Count} câu hỏi từ file Word!", testId = newTest.Id });
             }
@@ -240,20 +223,18 @@ namespace LyraSAT.Controllers
 
                 if (line.StartsWith("Text:", StringComparison.OrdinalIgnoreCase))
                 {
-                    // Nếu đang có câu hỏi dở dang trước đó, kiểm tra hợp lệ rồi mới thêm vào danh sách
                     if (currentQ != null)
                     {
                         currentQ.PassageText = string.Join("\n", passageLines).Trim();
                         currentQ.QuestionText = string.Join("\n", questionLines).Trim();
 
-                        // KIỂM TRA AN TOÀN: Chỉ thêm khi có nội dung câu hỏi và bắt buộc phải có OptionA
+                        // Kiểm tra an toàn: Bắt buộc phải có QuestionText và OptionA để tránh lỗi cột NOT NULL của DB
                         if (!string.IsNullOrEmpty(currentQ.QuestionText) && !string.IsNullOrEmpty(currentQ.OptionA))
                         {
                             questions.Add(currentQ);
                         }
                     }
 
-                    // Khởi tạo câu hỏi mới
                     currentQ = new Question { TestId = testId };
                     passageLines.Clear();
                     questionLines.Clear();
@@ -304,14 +285,6 @@ namespace LyraSAT.Controllers
                             currentQ.CorrectAnswer = parts.Last().Trim().ToUpper();
                         }
                     }
-                    else if (line.StartsWith("VIDEO", StringComparison.OrdinalIgnoreCase) || line.StartsWith("Link video", StringComparison.OrdinalIgnoreCase))
-                    {
-                        var colonIdx = line.IndexOf(':');
-                        if (colonIdx >= 0 && colonIdx < line.Length - 1)
-                        {
-                            currentQ.VideoExplanationUrl = line.Substring(colonIdx + 1).Trim();
-                        }
-                    }
                     else
                     {
                         if (isReadingPassage)
@@ -326,12 +299,10 @@ namespace LyraSAT.Controllers
                 }
                 else
                 {
-                    // Trường hợp dòng rác ngoài lề trước khi gặp chữ "Text:" đầu tiên
                     passageLines.Add(line);
                 }
             }
 
-            // Kiểm tra và thêm câu hỏi cuối cùng của file
             if (currentQ != null)
             {
                 currentQ.PassageText = string.Join("\n", passageLines).Trim();
@@ -411,7 +382,6 @@ namespace LyraSAT.Controllers
                     id = t.Id,
                     title = t.Title ?? "Bài test không tên",
                     duration = t.Duration,
-                    videoExplanationUrl = t.VideoExplanationUrl ?? "",
                     questions = t.Questions.Select(q => new
                     {
                         id = q.Id,
@@ -489,8 +459,6 @@ namespace LyraSAT.Controllers
                         allowed = false,
                         submissionCount = submissionCount,
                         maxAttempts = test.MaxAttempts.Value,
-                        videoExplanationUrl = test.VideoExplanationUrl,
-                        testTitle = test.Title,
                         message = $"Bạn đã hết số lần làm bài cho phép ({submissionCount}/{test.MaxAttempts.Value})."
                     });
                 }
@@ -507,99 +475,6 @@ namespace LyraSAT.Controllers
             catch (Exception ex)
             {
                 return StatusCode(500, new { message = "Lỗi server: " + ex.Message });
-            }
-        }
-
-        // Xóa bài test (Dành cho Giáo viên & Quản trị viên)
-        [HttpDelete("{id}")]
-        public async Task<IActionResult> DeleteTest(int id, [FromQuery] int? userId = null)
-        {
-            try
-            {
-                var test = await _context.Tests.FindAsync(id);
-                if (test == null)
-                    return NotFound(new { message = "Không tìm thấy bài test." });
-
-                int currentUserId = userId ?? 0;
-                if (currentUserId <= 0 && Request.Headers.TryGetValue("X-User-Id", out var hId) && int.TryParse(hId, out int parsedHId))
-                {
-                    currentUserId = parsedHId;
-                }
-
-                if (currentUserId > 0)
-                {
-                    var user = await _context.Users.FindAsync(currentUserId);
-                    if (user != null && user.Role != "Teacher" && user.Role != "Admin")
-                    {
-                        return Forbid("Chỉ Giáo viên hoặc Quản trị viên mới được phép xóa bài test.");
-                    }
-                }
-
-                var questionIds = await _context.Questions.Where(q => q.TestId == id).Select(q => q.Id).ToListAsync();
-                var submissions = await _context.Submissions.Where(s => s.TestId == id).ToListAsync();
-                var submissionIds = submissions.Select(s => s.Id).ToList();
-
-                var subDetails = await _context.SubmissionDetails.Where(sd => submissionIds.Contains(sd.SubmissionId) || questionIds.Contains(sd.QuestionId)).ToListAsync();
-                if (subDetails.Any())
-                {
-                    _context.SubmissionDetails.RemoveRange(subDetails);
-                }
-
-                var comments = await _context.QuestionComments.Where(c => questionIds.Contains(c.QuestionId)).ToListAsync();
-                if (comments.Any())
-                {
-                    var commentIds = comments.Select(c => c.Id).ToList();
-                    var reactions = await _context.CommentReactions.Where(r => commentIds.Contains(r.CommentId)).ToListAsync();
-                    if (reactions.Any())
-                    {
-                        _context.CommentReactions.RemoveRange(reactions);
-                    }
-                    _context.QuestionComments.RemoveRange(comments);
-                }
-
-                if (submissions.Any())
-                {
-                    _context.Submissions.RemoveRange(submissions);
-                }
-
-                var questions = await _context.Questions.Where(q => q.TestId == id).ToListAsync();
-                if (questions.Any())
-                {
-                    _context.Questions.RemoveRange(questions);
-                }
-
-                _context.Tests.Remove(test);
-                await _context.SaveChangesAsync();
-
-                return Ok(new { message = "Đã xóa bài test thành công!" });
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { message = "Lỗi khi xóa bài test: " + ex.Message });
-            }
-        }
-
-        // Gỡ học sinh khỏi lớp (Dành cho Giáo viên khi add nhầm)
-        [HttpPost("class/{classCode}/remove-student/{studentId}")]
-        [HttpDelete("class/{classCode}/students/{studentId}")]
-        public async Task<IActionResult> RemoveStudentFromClass(string classCode, int studentId)
-        {
-            try
-            {
-                var student = await _context.Users.FirstOrDefaultAsync(u => u.Id == studentId && u.ClassCode == classCode);
-                if (student == null)
-                {
-                    return NotFound(new { message = "Không tìm thấy học sinh trong lớp này." });
-                }
-
-                student.ClassCode = null;
-                await _context.SaveChangesAsync();
-
-                return Ok(new { message = $"Đã gỡ học viên {student.FullName} ra khỏi lớp {classCode} thành công!" });
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { message = "Lỗi khi gỡ học sinh khỏi lớp: " + ex.Message });
             }
         }
     }
