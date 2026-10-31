@@ -122,6 +122,7 @@ namespace LyraSAT.Controllers
             [FromForm] string testType,
             [FromForm] DateTimeOffset? deadline,
             [FromForm] int? maxAttempts,
+            [FromForm] string? videoExplanationUrl,
             IFormFile file)
         {
             if (file == null || file.Length == 0)
@@ -147,7 +148,8 @@ namespace LyraSAT.Controllers
                     TestType = testType,
                     Deadline = deadline?.UtcDateTime,
                     MaxAttempts = finalMaxAttempts,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = DateTime.UtcNow,
+                    VideoExplanationUrl = videoExplanationUrl
                 };
 
                 _context.Tests.Add(newTest);
@@ -291,6 +293,14 @@ namespace LyraSAT.Controllers
                             currentQ.CorrectAnswer = parts.Last().Trim().ToUpper();
                         }
                     }
+                    else if (line.StartsWith("VIDEO", StringComparison.OrdinalIgnoreCase) || line.StartsWith("Link video", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var colonIdx = line.IndexOf(':');
+                        if (colonIdx >= 0 && colonIdx < line.Length - 1)
+                        {
+                            currentQ.VideoExplanationUrl = line.Substring(colonIdx + 1).Trim();
+                        }
+                    }
                     else
                     {
                         if (isReadingPassage)
@@ -388,6 +398,7 @@ namespace LyraSAT.Controllers
                     id = t.Id,
                     title = t.Title ?? "Bài test không tên",
                     duration = t.Duration,
+                    videoExplanationUrl = t.VideoExplanationUrl ?? "",
                     questions = t.Questions.Select(q => new
                     {
                         id = q.Id,
@@ -465,6 +476,8 @@ namespace LyraSAT.Controllers
                         allowed = false,
                         submissionCount = submissionCount,
                         maxAttempts = test.MaxAttempts.Value,
+                        videoExplanationUrl = test.VideoExplanationUrl,
+                        testTitle = test.Title,
                         message = $"Bạn đã hết số lần làm bài cho phép ({submissionCount}/{test.MaxAttempts.Value})."
                     });
                 }
@@ -481,6 +494,99 @@ namespace LyraSAT.Controllers
             catch (Exception ex)
             {
                 return StatusCode(500, new { message = "Lỗi server: " + ex.Message });
+            }
+        }
+
+        // Xóa bài test (Dành cho Giáo viên & Quản trị viên)
+        [HttpDelete("{id}")]
+        public async Task<IActionResult> DeleteTest(int id, [FromQuery] int? userId = null)
+        {
+            try
+            {
+                var test = await _context.Tests.FindAsync(id);
+                if (test == null)
+                    return NotFound(new { message = "Không tìm thấy bài test." });
+
+                int currentUserId = userId ?? 0;
+                if (currentUserId <= 0 && Request.Headers.TryGetValue("X-User-Id", out var hId) && int.TryParse(hId, out int parsedHId))
+                {
+                    currentUserId = parsedHId;
+                }
+
+                if (currentUserId > 0)
+                {
+                    var user = await _context.Users.FindAsync(currentUserId);
+                    if (user != null && user.Role != "Teacher" && user.Role != "Admin")
+                    {
+                        return Forbid("Chỉ Giáo viên hoặc Quản trị viên mới được phép xóa bài test.");
+                    }
+                }
+
+                var questionIds = await _context.Questions.Where(q => q.TestId == id).Select(q => q.Id).ToListAsync();
+                var submissions = await _context.Submissions.Where(s => s.TestId == id).ToListAsync();
+                var submissionIds = submissions.Select(s => s.Id).ToList();
+
+                var subDetails = await _context.SubmissionDetails.Where(sd => submissionIds.Contains(sd.SubmissionId) || questionIds.Contains(sd.QuestionId)).ToListAsync();
+                if (subDetails.Any())
+                {
+                    _context.SubmissionDetails.RemoveRange(subDetails);
+                }
+
+                var comments = await _context.QuestionComments.Where(c => questionIds.Contains(c.QuestionId)).ToListAsync();
+                if (comments.Any())
+                {
+                    var commentIds = comments.Select(c => c.Id).ToList();
+                    var reactions = await _context.CommentReactions.Where(r => commentIds.Contains(r.CommentId)).ToListAsync();
+                    if (reactions.Any())
+                    {
+                        _context.CommentReactions.RemoveRange(reactions);
+                    }
+                    _context.QuestionComments.RemoveRange(comments);
+                }
+
+                if (submissions.Any())
+                {
+                    _context.Submissions.RemoveRange(submissions);
+                }
+
+                var questions = await _context.Questions.Where(q => q.TestId == id).ToListAsync();
+                if (questions.Any())
+                {
+                    _context.Questions.RemoveRange(questions);
+                }
+
+                _context.Tests.Remove(test);
+                await _context.SaveChangesAsync();
+
+                return Ok(new { message = "Đã xóa bài test thành công!" });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "Lỗi khi xóa bài test: " + ex.Message });
+            }
+        }
+
+        // Gỡ học sinh khỏi lớp (Dành cho Giáo viên khi add nhầm)
+        [HttpPost("class/{classCode}/remove-student/{studentId}")]
+        [HttpDelete("class/{classCode}/students/{studentId}")]
+        public async Task<IActionResult> RemoveStudentFromClass(string classCode, int studentId)
+        {
+            try
+            {
+                var student = await _context.Users.FirstOrDefaultAsync(u => u.Id == studentId && u.ClassCode == classCode);
+                if (student == null)
+                {
+                    return NotFound(new { message = "Không tìm thấy học sinh trong lớp này." });
+                }
+
+                student.ClassCode = null;
+                await _context.SaveChangesAsync();
+
+                return Ok(new { message = $"Đã gỡ học viên {student.FullName} ra khỏi lớp {classCode} thành công!" });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "Lỗi khi gỡ học sinh khỏi lớp: " + ex.Message });
             }
         }
     }
