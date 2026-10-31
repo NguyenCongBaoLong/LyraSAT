@@ -171,17 +171,23 @@ namespace LyraSAT.Controllers
                     }
                     else if (element is XWPFTable table)
                     {
-                        // XỬ LÝ BẢNG: Duyệt từng hàng và từng ô, nối lại bằng dấu |
+                        // Chuyển đổi bảng Word thành chuỗi HTML chuẩn
+                        var htmlTable = new System.Text.StringBuilder();
+                        htmlTable.Append("<div class='passage-table-wrapper'><table class='passage-table'><tbody>");
+
                         foreach (var row in table.Rows)
                         {
-                            var rowCells = row.GetTableCells().Select(cell => cell.GetText().Trim());
-                            string rowText = string.Join(" | ", rowCells.Where(c => !string.IsNullOrEmpty(c)));
-
-                            if (!string.IsNullOrWhiteSpace(rowText))
+                            htmlTable.Append("<tr>");
+                            foreach (var cell in row.GetTableCells())
                             {
-                                extractedLines.Add(rowText);
+                                string cellText = System.Net.WebUtility.HtmlEncode(cell.GetText().Trim());
+                                htmlTable.Append($"<td>{cellText}</td>");
                             }
+                            htmlTable.Append("</tr>");
                         }
+                        htmlTable.Append("</tbody></table></div>");
+
+                        extractedLines.Add(htmlTable.ToString());
                     }
                 }
 
