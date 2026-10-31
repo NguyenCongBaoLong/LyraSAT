@@ -99,10 +99,43 @@ namespace LyraSAT.Controllers
                 .Where(u => u.Role == "Teacher")
                 .OrderBy(u => u.FullName)
                 .ThenBy(u => u.Id)
-                .Select(u => new { u.Id, u.FullName, u.Email })
+                .Select(u => new { u.Id, u.FullName, u.Email, u.IsActive })
                 .ToPagedResultAsync(page, pageSize);
 
             return Ok(teachers);
+        }
+
+        // Bổ sung: Admin trực tiếp chuyển quyền Key chính cho giáo viên trong lớp
+        [HttpPost("classes/{classCode}/transfer-lead/{teacherId}")]
+        public async Task<IActionResult> AdminTransferLeadKey(string classCode, int teacherId)
+        {
+            try
+            {
+                var targetClass = await _context.Classes.FirstOrDefaultAsync(c => c.ClassCode == classCode);
+                if (targetClass == null) return NotFound(new { message = "Không tìm thấy lớp học." });
+
+                var targetTeacher = await _context.Users.FirstOrDefaultAsync(u => u.Id == teacherId && u.Role == "Teacher");
+                if (targetTeacher == null) return NotFound(new { message = "Không tìm thấy giáo viên." });
+
+                bool exists = await _context.ClassTeachers.AnyAsync(ct => ct.ClassCode == classCode && ct.TeacherId == teacherId);
+                if (!exists)
+                {
+                    _context.ClassTeachers.Add(new ClassTeacher { ClassCode = classCode, TeacherId = teacherId });
+                }
+
+                targetClass.TeacherId = teacherId;
+                await _context.SaveChangesAsync();
+
+                return Ok(new
+                {
+                    message = $"Đã trao Key chính lớp {classCode} cho cô/thầy {targetTeacher.FullName} thành công!",
+                    leadTeacherId = teacherId
+                });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "Lỗi khi trao key: " + ex.Message });
+            }
         }
 
         // 3. Tạo Lớp học mới (Dựa theo Model Class chuẩn của bạn)

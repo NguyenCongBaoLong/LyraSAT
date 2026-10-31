@@ -32,31 +32,55 @@ namespace LyraSAT.Controllers
                     return BadRequest(new { message = "Email không được để trống." });
                 }
 
-                // 1. Tìm thông tin giáo viên dựa vào email đăng nhập
-                var teacher = await _context.Users
+                // 1. Tìm thông tin người dùng (Giáo viên hoặc Quản trị viên)
+                var user = await _context.Users
                     .AsNoTracking()
-                    .FirstOrDefaultAsync(u => u.Email == email && u.Role == "Teacher");
+                    .FirstOrDefaultAsync(u => u.Email == email);
 
-                if (teacher == null)
+                if (user == null)
                 {
-                    return Ok(new List<object>()); // Không tìm thấy giáo viên -> trả về mảng rỗng
+                    return Ok(new List<object>());
                 }
 
-                // 2. Lấy danh sách mã lớp từ ClassTeachers và Classes
+                // Nếu là Admin: Trả về toàn bộ danh sách lớp học trong hệ thống để Admin toàn quyền điều phối
+                if (user.Role == "Admin")
+                {
+                    var allClasses = await _context.Classes
+                        .AsNoTracking()
+                        .OrderBy(c => c.ClassCode)
+                        .Select(c => new
+                        {
+                            code = c.ClassCode,
+                            name = c.ClassName ?? c.ClassCode,
+                            isLead = true,
+                            isAdmin = true
+                        })
+                        .ToListAsync();
+
+                    return Ok(allClasses);
+                }
+
+                if (user.Role != "Teacher")
+                {
+                    return Ok(new List<object>());
+                }
+
+                // 2. Đối với Giáo viên: Lấy danh sách mã lớp từ ClassTeachers và Classes
                 var assignedClassCodes = await _context.ClassTeachers
                     .AsNoTracking()
-                    .Where(ct => ct.TeacherId == teacher.Id)
+                    .Where(ct => ct.TeacherId == user.Id)
                     .Select(ct => ct.ClassCode)
                     .ToListAsync();
 
                 var classes = await _context.Classes
                     .AsNoTracking()
-                    .Where(c => c.TeacherId == teacher.Id || assignedClassCodes.Contains(c.ClassCode))
+                    .Where(c => c.TeacherId == user.Id || assignedClassCodes.Contains(c.ClassCode))
                     .Select(c => new
                     {
                         code = c.ClassCode,
                         name = c.ClassName ?? c.ClassCode,
-                        isLead = c.TeacherId == teacher.Id
+                        isLead = c.TeacherId == user.Id,
+                        isAdmin = false
                     })
                     .Distinct()
                     .ToListAsync();
@@ -158,7 +182,8 @@ namespace LyraSAT.Controllers
                     classCode = targetClass.ClassCode,
                     className = targetClass.ClassName ?? targetClass.ClassCode,
                     leadTeacherId = targetClass.TeacherId,
-                    isCurrentUserLead = isLead,
+                    isCurrentUserLead = isLead || isAdmin,
+                    isAdmin = isAdmin,
                     canManage = isLead || isAdmin,
                     maxTeachers = 4,
                     currentTeacherCount = teachersList.Count,
