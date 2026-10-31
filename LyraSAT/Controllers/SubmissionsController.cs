@@ -82,6 +82,62 @@ namespace LyraSAT.Controllers
             _context.Submissions.Add(submission);
             await _context.SaveChangesAsync();
 
+            // --- Gửi Thông báo Nộp bài cho Toàn bộ Giáo viên phụ trách lớp (2-4 giáo viên) ---
+            try
+            {
+                var student = await _context.Users.FindAsync(model.StudentId);
+                string studentName = student?.FullName ?? "Học sinh";
+                string classCode = test.ClassCode ?? string.Empty;
+
+                var teacherIds = new List<int>();
+                if (!string.IsNullOrEmpty(classCode))
+                {
+                    var assigned = await _context.ClassTeachers
+                        .Where(ct => ct.ClassCode == classCode)
+                        .Select(ct => ct.TeacherId)
+                        .ToListAsync();
+                    teacherIds.AddRange(assigned);
+
+                    var targetClass = await _context.Classes.FirstOrDefaultAsync(c => c.ClassCode == classCode);
+                    if (targetClass != null && targetClass.TeacherId.HasValue && !teacherIds.Contains(targetClass.TeacherId.Value))
+                    {
+                        teacherIds.Add(targetClass.TeacherId.Value);
+                    }
+                }
+
+                if (!teacherIds.Any())
+                {
+                    var fallbackTeachers = await _context.Users
+                        .Where(u => u.Role == "Teacher")
+                        .Select(u => u.Id)
+                        .ToListAsync();
+                    teacherIds.AddRange(fallbackTeachers);
+                }
+
+                foreach (var tId in teacherIds.Distinct())
+                {
+                    if (tId != model.StudentId)
+                    {
+                        _context.Notifications.Add(new Notification
+                        {
+                            UserId = tId,
+                            ActorId = model.StudentId,
+                            Type = "test_submission",
+                            Title = $"📝 {studentName} đã nộp bài test '{test.Title}'",
+                            Content = $"Kết quả: {correctCount}/{totalQuestions} câu đúng ({scorePercent}%). Thời gian làm: {model.TimeSpent / 60} phút.",
+                            TestId = test.Id,
+                            IsRead = false,
+                            CreatedAt = DateTime.UtcNow
+                        });
+                    }
+                }
+                await _context.SaveChangesAsync();
+            }
+            catch (Exception notifEx)
+            {
+                Console.WriteLine("Lỗi gửi thông báo nộp bài: " + notifEx.Message);
+            }
+
             return Ok(new
             {
                 message = "Nộp bài thành công!",
