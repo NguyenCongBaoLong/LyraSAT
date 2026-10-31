@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("LyraSAT")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+dbef3536934f0e3b96f6da485f40097a1a1b23d9")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+1962060953b73e694a68a7e7825866f80d25882a")]
 [assembly: System.Reflection.AssemblyProductAttribute("LyraSAT")]
 [assembly: System.Reflection.AssemblyTitleAttribute("LyraSAT")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

@@ -297,6 +297,14 @@ namespace LyraSAT.Controllers
                             currentQ.CorrectAnswer = parts.Last().Trim().ToUpper();
                         }
                     }
+                    else if (line.StartsWith("VIDEO", StringComparison.OrdinalIgnoreCase) || line.StartsWith("Link video", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var colonIdx = line.IndexOf(':');
+                        if (colonIdx >= 0 && colonIdx < line.Length - 1)
+                        {
+                            currentQ.VideoExplanationUrl = line.Substring(colonIdx + 1).Trim();
+                        }
+                    }
                     else
                     {
                         if (isReadingPassage)
