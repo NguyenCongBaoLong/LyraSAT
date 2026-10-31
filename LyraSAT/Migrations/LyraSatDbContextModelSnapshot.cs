@@ -281,6 +281,9 @@ namespace LyraSAT.Migrations
 
                     b.HasIndex("UserId");
 
+                    b.HasIndex("UserId", "ClassId")
+                        .IsUnique();
+
                     b.ToTable("StudentClasses");
                 });
 
@@ -527,7 +530,7 @@ namespace LyraSAT.Migrations
                         .IsRequired();
 
                     b.HasOne("LyraSAT.Models.User", "User")
-                        .WithMany()
+                        .WithMany("StudentClasses")
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
