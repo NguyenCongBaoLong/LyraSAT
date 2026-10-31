@@ -165,11 +165,7 @@ namespace LyraSAT.Controllers
                 {
                     if (element is XWPFParagraph paragraph)
                     {
-                        string text = paragraph.ParagraphText.Trim();
-                        if (!string.IsNullOrWhiteSpace(text))
-                        {
-                            extractedLines.Add(text);
-                        }
+                        AddParagraphLines(extractedLines, paragraph.ParagraphText);
                     }
                     else if (element is XWPFTable table)
                     {
@@ -182,7 +178,7 @@ namespace LyraSAT.Controllers
                             htmlTable.Append("<tr>");
                             foreach (var cell in row.GetTableCells())
                             {
-                                string cellText = System.Net.WebUtility.HtmlEncode(cell.GetText().Trim());
+                                string cellText = System.Net.WebUtility.HtmlEncode(cell.GetText());
                                 htmlTable.Append($"<td>{cellText}</td>");
                             }
                             htmlTable.Append("</tr>");
@@ -227,14 +223,22 @@ namespace LyraSAT.Controllers
             foreach (var rawLine in lines)
             {
                 string line = rawLine.Trim();
-                if (string.IsNullOrEmpty(line)) continue;
+                if (string.IsNullOrEmpty(line))
+                {
+                    if (currentQ != null)
+                    {
+                        if (isReadingPassage) passageLines.Add(rawLine);
+                        else questionLines.Add(rawLine);
+                    }
+                    continue;
+                }
 
                 if (line.StartsWith("Text:", StringComparison.OrdinalIgnoreCase))
                 {
                     if (currentQ != null)
                     {
-                        currentQ.PassageText = string.Join("\n", passageLines).Trim();
-                        currentQ.QuestionText = string.Join("\n", questionLines).Trim();
+                        currentQ.PassageText = JoinPreservingLineBreaks(passageLines);
+                        currentQ.QuestionText = JoinPreservingLineBreaks(questionLines);
 
                         // Kiểm tra an toàn: Bắt buộc phải có QuestionText và OptionA để tránh lỗi cột NOT NULL của DB
                         if (!string.IsNullOrEmpty(currentQ.QuestionText) && !string.IsNullOrEmpty(currentQ.OptionA))
@@ -248,7 +252,7 @@ namespace LyraSAT.Controllers
                     questionLines.Clear();
                     isReadingPassage = true;
 
-                    string contentAfterColon = line.Substring(5).Trim();
+                    string contentAfterColon = line.Substring(5).TrimStart();
                     if (!string.IsNullOrEmpty(contentAfterColon))
                     {
                         passageLines.Add(contentAfterColon);
@@ -263,7 +267,7 @@ namespace LyraSAT.Controllers
 
                     isReadingPassage = false;
 
-                    string contentAfterColon = line.Substring(line.IndexOf(':') + 1).Trim();
+                    string contentAfterColon = line.Substring(line.IndexOf(':') + 1).TrimStart();
                     if (!string.IsNullOrEmpty(contentAfterColon))
                     {
                         questionLines.Add(contentAfterColon);
@@ -278,7 +282,7 @@ namespace LyraSAT.Controllers
                     else if (System.Text.RegularExpressions.Regex.IsMatch(line, @"^[A-D][:\.]"))
                     {
                         char optKey = char.ToUpper(line[0]);
-                        string optVal = line.Substring(2).Trim();
+                        string optVal = line.Substring(2).TrimStart();
 
                         if (optKey == 'A') currentQ.OptionA = optVal;
                         else if (optKey == 'B') currentQ.OptionB = optVal;
@@ -321,8 +325,8 @@ namespace LyraSAT.Controllers
 
             if (currentQ != null)
             {
-                currentQ.PassageText = string.Join("\n", passageLines).Trim();
-                currentQ.QuestionText = string.Join("\n", questionLines).Trim();
+                currentQ.PassageText = JoinPreservingLineBreaks(passageLines);
+                currentQ.QuestionText = JoinPreservingLineBreaks(questionLines);
 
                 if (!string.IsNullOrEmpty(currentQ.QuestionText) && !string.IsNullOrEmpty(currentQ.OptionA))
                 {
@@ -333,6 +337,19 @@ namespace LyraSAT.Controllers
             return questions;
         }
 
+        private static void AddParagraphLines(List<string> lines, string? paragraphText)
+        {
+            if (paragraphText == null) return;
+
+            var normalizedText = paragraphText.Replace("\r\n", "\n").Replace('\r', '\n');
+            lines.AddRange(normalizedText.Split('\n', StringSplitOptions.None));
+        }
+
+        private static string JoinPreservingLineBreaks(List<string> lines)
+        {
+            return string.Join("\n", lines).Trim('\r', '\n');
+        }
+
         private void ExtractAllOptionsInline(Question q, string text)
         {
             try
@@ -340,7 +357,7 @@ namespace LyraSAT.Controllers
                 var parts = System.Text.RegularExpressions.Regex.Split(text, @"(?=[A-D][:\.])");
                 foreach (var p in parts)
                 {
-                    string trimmed = p.Trim();
+                    string trimmed = p.TrimStart();
                     if (trimmed.StartsWith("A:") || trimmed.StartsWith("A.")) q.OptionA = trimmed.Substring(2).Trim();
                     else if (trimmed.StartsWith("B:") || trimmed.StartsWith("B.")) q.OptionB = trimmed.Substring(2).Trim();
                     else if (trimmed.StartsWith("C:") || trimmed.StartsWith("C.")) q.OptionC = trimmed.Substring(2).Trim();
