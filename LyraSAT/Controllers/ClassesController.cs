@@ -1,4 +1,5 @@
 using LyraSAT.Data;
+using LyraSAT.DTOs;
 using LyraSAT.Models;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -33,9 +34,10 @@ namespace LyraSAT.Controllers
                 }
 
                 // 1. Tìm thông tin người dùng (Giáo viên hoặc Quản trị viên)
+                var normalizedEmail = (email ?? string.Empty).Trim().ToLower();
                 var user = await _context.Users
                     .AsNoTracking()
-                    .FirstOrDefaultAsync(u => u.Email == email);
+                    .FirstOrDefaultAsync(u => u.Email.ToLower() == normalizedEmail);
 
                 if (user == null)
                 {
@@ -72,9 +74,15 @@ namespace LyraSAT.Controllers
                     .Select(ct => ct.ClassCode)
                     .ToListAsync();
 
+                var assignedLower = assignedClassCodes
+                    .Select(code => (code ?? string.Empty).Trim().ToLower())
+                    .Where(code => code.Length > 0)
+                    .Distinct()
+                    .ToList();
+
                 var classes = await _context.Classes
                     .AsNoTracking()
-                    .Where(c => c.TeacherId == user.Id || assignedClassCodes.Contains(c.ClassCode))
+                    .Where(c => c.TeacherId == user.Id || assignedLower.Contains(c.ClassCode.ToLower()))
                     .Select(c => new
                     {
                         code = c.ClassCode,
@@ -99,7 +107,7 @@ namespace LyraSAT.Controllers
         {
             try
             {
-                var targetClass = await _context.Classes.FirstOrDefaultAsync(c => c.ClassCode == classCode);
+                var targetClass = await _context.Classes.FirstOrDefaultAsync(c => c.ClassCode.ToLower() == classCode.Trim().ToLower());
                 if (targetClass == null)
                 {
                     return NotFound(new { message = "Không tìm thấy lớp học." });
@@ -108,12 +116,12 @@ namespace LyraSAT.Controllers
                 // Đồng bộ nếu targetClass.TeacherId chưa có trong ClassTeachers
                 if (targetClass.TeacherId.HasValue)
                 {
-                    bool existsInCt = await _context.ClassTeachers.AnyAsync(ct => ct.ClassCode == classCode && ct.TeacherId == targetClass.TeacherId.Value);
+                    bool existsInCt = await _context.ClassTeachers.AnyAsync(ct => ct.ClassCode.ToLower() == classCode.Trim().ToLower() && ct.TeacherId == targetClass.TeacherId.Value);
                     if (!existsInCt)
                     {
                         _context.ClassTeachers.Add(new ClassTeacher
                         {
-                            ClassCode = classCode,
+                            ClassCode = targetClass.ClassCode,
                             TeacherId = targetClass.TeacherId.Value,
                             AssignedAt = DateTime.UtcNow
                         });
@@ -123,7 +131,7 @@ namespace LyraSAT.Controllers
 
                 // Danh sách giáo viên hiện tại của lớp
                 var assignments = await _context.ClassTeachers
-                    .Where(ct => ct.ClassCode == classCode)
+                    .Where(ct => ct.ClassCode.ToLower() == classCode.Trim().ToLower())
                     .ToListAsync();
 
                 var teacherIds = assignments.Select(ct => ct.TeacherId).Distinct().ToList();
@@ -203,7 +211,7 @@ namespace LyraSAT.Controllers
         {
             try
             {
-                var targetClass = await _context.Classes.FirstOrDefaultAsync(c => c.ClassCode == classCode);
+                var targetClass = await _context.Classes.FirstOrDefaultAsync(c => c.ClassCode.ToLower() == classCode.Trim().ToLower());
                 if (targetClass == null) return NotFound(new { message = "Không tìm thấy lớp học." });
 
                 // Kiểm tra quyền: phải là Admin hoặc Lead Teacher của lớp
@@ -217,7 +225,7 @@ namespace LyraSAT.Controllers
                 }
 
                 // Kiểm tra số lượng giáo viên hiện tại (tối đa 4)
-                var currentCount = await _context.ClassTeachers.CountAsync(ct => ct.ClassCode == classCode);
+                var currentCount = await _context.ClassTeachers.CountAsync(ct => ct.ClassCode.ToLower() == classCode.Trim().ToLower());
                 if (currentCount >= 4)
                 {
                     return BadRequest(new { message = "Lớp học đã đạt giới hạn tối đa 4 giáo viên. Không thể thêm nữa." });
@@ -231,7 +239,7 @@ namespace LyraSAT.Controllers
                 }
 
                 // Kiểm tra xem đã có trong lớp chưa
-                bool alreadyInClass = await _context.ClassTeachers.AnyAsync(ct => ct.ClassCode == classCode && ct.TeacherId == req.TeacherId);
+                bool alreadyInClass = await _context.ClassTeachers.AnyAsync(ct => ct.ClassCode.ToLower() == classCode.Trim().ToLower() && ct.TeacherId == req.TeacherId);
                 if (alreadyInClass)
                 {
                     return BadRequest(new { message = "Giáo viên này đã thuộc lớp học rồi." });
@@ -240,7 +248,7 @@ namespace LyraSAT.Controllers
                 // Thêm vào bảng ClassTeachers
                 _context.ClassTeachers.Add(new ClassTeacher
                 {
-                    ClassCode = classCode,
+                    ClassCode = targetClass.ClassCode,
                     TeacherId = req.TeacherId,
                     AssignedAt = DateTime.UtcNow
                 });
@@ -267,7 +275,7 @@ namespace LyraSAT.Controllers
         {
             try
             {
-                var targetClass = await _context.Classes.FirstOrDefaultAsync(c => c.ClassCode == classCode);
+                var targetClass = await _context.Classes.FirstOrDefaultAsync(c => c.ClassCode.ToLower() == classCode.Trim().ToLower());
                 if (targetClass == null) return NotFound(new { message = "Không tìm thấy lớp học." });
 
                 var requester = await _context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == req.RequestUserId);
@@ -282,7 +290,7 @@ namespace LyraSAT.Controllers
                     // Nếu người tự rời là Giáo viên chính (nắm key)
                     if (isLead)
                     {
-                        var otherTeachersCount = await _context.ClassTeachers.CountAsync(ct => ct.ClassCode == classCode && ct.TeacherId != req.RequestUserId);
+                        var otherTeachersCount = await _context.ClassTeachers.CountAsync(ct => ct.ClassCode.ToLower() == classCode.Trim().ToLower() && ct.TeacherId != req.RequestUserId);
                         if (otherTeachersCount > 0)
                         {
                             return BadRequest(new
@@ -298,7 +306,7 @@ namespace LyraSAT.Controllers
                     }
 
                     // Xóa khỏi ClassTeachers
-                    var ct = await _context.ClassTeachers.FirstOrDefaultAsync(x => x.ClassCode == classCode && x.TeacherId == req.TeacherId);
+                    var ct = await _context.ClassTeachers.FirstOrDefaultAsync(x => x.ClassCode.ToLower() == classCode.Trim().ToLower() && x.TeacherId == req.TeacherId);
                     if (ct != null) _context.ClassTeachers.Remove(ct);
 
                     await _context.SaveChangesAsync();
@@ -318,7 +326,7 @@ namespace LyraSAT.Controllers
                         return BadRequest(new { message = "Không thể loại trừ Giáo viên chính của lớp. Hãy truyền key chính cho người khác trước." });
                     }
 
-                    var ct = await _context.ClassTeachers.FirstOrDefaultAsync(x => x.ClassCode == classCode && x.TeacherId == req.TeacherId);
+                    var ct = await _context.ClassTeachers.FirstOrDefaultAsync(x => x.ClassCode.ToLower() == classCode.Trim().ToLower() && x.TeacherId == req.TeacherId);
                     if (ct != null)
                     {
                         _context.ClassTeachers.Remove(ct);
@@ -340,7 +348,7 @@ namespace LyraSAT.Controllers
         {
             try
             {
-                var targetClass = await _context.Classes.FirstOrDefaultAsync(c => c.ClassCode == classCode);
+                var targetClass = await _context.Classes.FirstOrDefaultAsync(c => c.ClassCode.ToLower() == classCode.Trim().ToLower());
                 if (targetClass == null) return NotFound(new { message = "Không tìm thấy lớp học." });
 
                 var requester = await _context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == req.RequestUserId);
@@ -358,7 +366,7 @@ namespace LyraSAT.Controllers
                 }
 
                 // Kiểm tra xem giáo viên mới có đang phụ trách lớp này không
-                bool isInClass = await _context.ClassTeachers.AnyAsync(ct => ct.ClassCode == classCode && ct.TeacherId == req.NewLeadTeacherId);
+                bool isInClass = await _context.ClassTeachers.AnyAsync(ct => ct.ClassCode.ToLower() == classCode.Trim().ToLower() && ct.TeacherId == req.NewLeadTeacherId);
                 if (!isInClass)
                 {
                     return BadRequest(new { message = "Giáo viên được chọn nhận key phải đang là thành viên phụ trách lớp này." });
@@ -374,12 +382,12 @@ namespace LyraSAT.Controllers
                 targetClass.TeacherId = req.NewLeadTeacherId;
 
                 // Đảm bảo cả người cũ và người mới đều có bản ghi trong ClassTeachers
-                bool oldInCt = await _context.ClassTeachers.AnyAsync(ct => ct.ClassCode == classCode && ct.TeacherId == req.RequestUserId);
+                bool oldInCt = await _context.ClassTeachers.AnyAsync(ct => ct.ClassCode.ToLower() == classCode.Trim().ToLower() && ct.TeacherId == req.RequestUserId);
                 if (!oldInCt && req.RequestUserId > 0)
                 {
                     _context.ClassTeachers.Add(new ClassTeacher
                     {
-                        ClassCode = classCode,
+                        ClassCode = targetClass.ClassCode,
                         TeacherId = req.RequestUserId,
                         AssignedAt = DateTime.UtcNow
                     });
@@ -397,23 +405,5 @@ namespace LyraSAT.Controllers
                 return StatusCode(500, new { message = "Lỗi khi truyền key chính: " + ex.Message });
             }
         }
-    }
-
-    public class AddTeacherRequest
-    {
-        public int TeacherId { get; set; }
-        public int RequestUserId { get; set; }
-    }
-
-    public class RemoveTeacherRequest
-    {
-        public int TeacherId { get; set; }
-        public int RequestUserId { get; set; }
-    }
-
-    public class TransferKeyRequest
-    {
-        public int NewLeadTeacherId { get; set; }
-        public int RequestUserId { get; set; }
     }
 }

@@ -1,5 +1,7 @@
 ﻿using LyraSAT.Data;
+using LyraSAT.DTOs;
 using LyraSAT.Models; // Đảm bảo namespace chứa model User của bạn
+using LyraSAT.Services;
 using Microsoft.AspNetCore.Identity; // Thêm thư viện để dùng PasswordHasher
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -22,7 +24,9 @@ namespace LyraSAT.Controllers
         [HttpPost("login")]
         public async Task<IActionResult> Login([FromBody] LoginDto model)
         {
-            var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == model.Email);
+            var email = (model.Email ?? string.Empty).Trim().ToLower();
+
+            var user = await _context.Users.FirstOrDefaultAsync(u => u.Email.ToLower() == email);
 
             if (user == null)
             {
@@ -75,29 +79,50 @@ namespace LyraSAT.Controllers
             await _context.SaveChangesAsync();
 
             // Trả về thông tin user kèm theo số streak mới nhất cho Frontend
-            return Ok(new { message = "Đăng nhập thành công!", user = await ToSafeUser(_context, user) });
+            return Ok(new { message = "Đăng nhập thành công!", user = await UserProfileMapper.ToSafeUserAsync(_context, user) });
         }
 
         // Bổ sung API Đăng ký tài khoản mới - Đã áp dụng Hash Password
         [HttpPost("register")]
         public async Task<IActionResult> Register([FromBody] RegisterDto model)
         {
-            // Kiểm tra xem email đã tồn tại trong hệ thống chưa
+            var email = (model.Email ?? string.Empty).Trim().ToLower();
+            if (email.Length == 0)
+            {
+                return BadRequest(new { message = "Email không được để trống!" });
+            }
+
+            // Kiểm tra xem email đã tồn tại trong hệ thống chưa (không phân biệt hoa/thường)
             var existingUser = await _context.Users
-                .FirstOrDefaultAsync(u => u.Email == model.Email);
+                .FirstOrDefaultAsync(u => u.Email.ToLower() == email);
 
             if (existingUser != null)
             {
                 return BadRequest(new { message = "Email này đã được sử dụng!" });
             }
 
+            var role = string.IsNullOrEmpty(model.Role) ? "Student" : model.Role;
+            var classCode = ClassCodeHelper.Normalize(model.ClassCode);
+
+            // Học sinh đăng ký phải chọn lớp có thật, nếu không sẽ sinh ra mã lớp mồ côi
+            Class? targetClass = null;
+            if (role == "Student" && classCode.Length > 0)
+            {
+                targetClass = await ClassCodeHelper.FindClassAsync(_context, classCode);
+                if (targetClass == null)
+                {
+                    return BadRequest(new { message = $"Mã lớp '{classCode}' không tồn tại. Vui lòng kiểm tra lại." });
+                }
+                classCode = targetClass.ClassCode;
+            }
+
             // Tạo đối tượng User mới
             var newUser = new User
             {
-                Email = model.Email,
+                Email = email,
                 FullName = model.FullName,
-                Role = string.IsNullOrEmpty(model.Role) ? "Student" : model.Role, // Mặc định là Student nếu không truyền
-                ClassCode = model.ClassCode,
+                Role = role,
+                ClassCode = classCode.Length > 0 ? classCode : null,
                 TargetScore = 1500
             };
 
@@ -107,25 +132,20 @@ namespace LyraSAT.Controllers
             _context.Users.Add(newUser);
             await _context.SaveChangesAsync();
 
-            if (newUser.Role == "Student" && !string.IsNullOrWhiteSpace(model.ClassCode))
+            if (newUser.Role == "Student" && targetClass != null)
             {
-                var targetClass = await _context.Classes
-                    .FirstOrDefaultAsync(c => c.ClassCode == model.ClassCode);
-                if (targetClass != null)
+                _context.StudentClasses.Add(new StudentClass
                 {
-                    _context.StudentClasses.Add(new StudentClass
-                    {
-                        UserId = newUser.Id,
-                        ClassId = targetClass.Id
-                    });
-                    await _context.SaveChangesAsync();
-                }
+                    UserId = newUser.Id,
+                    ClassId = targetClass.Id
+                });
+                await _context.SaveChangesAsync();
             }
 
             return Ok(new
             {
                 message = "Đăng ký tài khoản thành công!",
-                user = await ToSafeUser(_context, newUser)
+                user = await UserProfileMapper.ToSafeUserAsync(_context, newUser)
             });
         }
 
@@ -169,71 +189,7 @@ namespace LyraSAT.Controllers
 
             await _context.SaveChangesAsync();
 
-            return Ok(new { message = "Cập nhật thành công!", user = await ToSafeUser(_context, user) });
+            return Ok(new { message = "Cập nhật thành công!", user = await UserProfileMapper.ToSafeUserAsync(_context, user) });
         }
-
-        // Chỉ trả về trường an toàn cho client, không bao giờ trả PasswordHash
-        private static async Task<object> ToSafeUser(LyraSatDbContext context, User u)
-        {
-            var classes = u.Role == "Student"
-                ? (await context.StudentClasses
-                    .AsNoTracking()
-                    .Where(sc => sc.UserId == u.Id && sc.Class != null)
-                    .OrderBy(sc => sc.AssignedAt)
-                    .Select(sc => new
-                    {
-                        classCode = sc.Class!.ClassCode,
-                        className = sc.Class.ClassName
-                    })
-                    .ToListAsync())
-                    .Cast<object>()
-                    .ToList()
-                : new List<object>();
-
-            return new
-            {
-                u.Id,
-                u.Email,
-                u.Role,
-                u.FullName,
-                u.ClassCode,
-                Classes = classes,
-                u.Avatar,
-                u.Dob,
-                u.Nickname,
-                u.TargetScore,
-                u.TuitionStatus,
-                u.IsActive,
-                u.StreakCount,
-                u.LastLoginDate,
-                u.ExamDate,
-                u.School
-            };
-        }
-    }
-
-    public class LoginDto
-    {
-        public string Email { get; set; }
-        public string Password { get; set; }
-    }
-
-    public class RegisterDto
-    {
-        public string Email { get; set; }
-        public string Password { get; set; }
-        public string FullName { get; set; }
-        public string Role { get; set; }      // "Student" hoặc "Teacher"
-        public string? ClassCode { get; set; } // Ví dụ: "SAT01"
-    }
-
-    public class UpdateProfileDto
-    {
-        public int UserId { get; set; }
-        public string? Nickname { get; set; }
-        public string? School { get; set; }
-        public string? Dob { get; set; }
-        public string? Avatar { get; set; }
-        public string? ExamDate { get; set; }
     }
 }

@@ -1,5 +1,7 @@
 ﻿using LyraSAT.Data;
+using LyraSAT.DTOs;
 using LyraSAT.Models;
+using LyraSAT.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System;
@@ -14,10 +16,17 @@ namespace LyraSAT.Controllers
     public class SubmissionsController : ControllerBase
     {
         private readonly LyraSatDbContext _context;
+        private readonly INotificationService _notificationService;
+        private readonly ILogger<SubmissionsController> _logger;
 
-        public SubmissionsController(LyraSatDbContext context)
+        public SubmissionsController(
+            LyraSatDbContext context,
+            INotificationService notificationService,
+            ILogger<SubmissionsController> logger)
         {
             _context = context;
+            _notificationService = notificationService;
+            _logger = logger;
         }
 
         // Nộp bài thi và chấm điểm tự động
@@ -86,56 +95,21 @@ namespace LyraSAT.Controllers
             try
             {
                 var student = await _context.Users.FindAsync(model.StudentId);
-                string studentName = student?.FullName ?? "Học sinh";
-                string classCode = test.ClassCode ?? string.Empty;
 
-                var teacherIds = new List<int>();
-                if (!string.IsNullOrEmpty(classCode))
-                {
-                    var assigned = await _context.ClassTeachers
-                        .Where(ct => ct.ClassCode == classCode)
-                        .Select(ct => ct.TeacherId)
-                        .ToListAsync();
-                    teacherIds.AddRange(assigned);
-
-                    var targetClass = await _context.Classes.FirstOrDefaultAsync(c => c.ClassCode == classCode);
-                    if (targetClass != null && targetClass.TeacherId.HasValue && !teacherIds.Contains(targetClass.TeacherId.Value))
-                    {
-                        teacherIds.Add(targetClass.TeacherId.Value);
-                    }
-                }
-
-                if (!teacherIds.Any())
-                {
-                    var fallbackTeachers = await _context.Users
-                        .Where(u => u.Role == "Teacher")
-                        .Select(u => u.Id)
-                        .ToListAsync();
-                    teacherIds.AddRange(fallbackTeachers);
-                }
-
-                foreach (var tId in teacherIds.Distinct())
-                {
-                    if (tId != model.StudentId)
-                    {
-                        _context.Notifications.Add(new Notification
-                        {
-                            UserId = tId,
-                            ActorId = model.StudentId,
-                            Type = "test_submission",
-                            Title = $"📝 {studentName} đã nộp bài test '{test.Title}'",
-                            Content = $"Kết quả: {correctCount}/{totalQuestions} câu đúng ({scorePercent}%). Thời gian làm: {model.TimeSpent / 60} phút.",
-                            TestId = test.Id,
-                            IsRead = false,
-                            CreatedAt = DateTime.UtcNow
-                        });
-                    }
-                }
-                await _context.SaveChangesAsync();
+                await _notificationService.NotifyTestSubmittedAsync(
+                    studentId: model.StudentId,
+                    studentName: student?.FullName,
+                    classCode: test.ClassCode ?? string.Empty,
+                    testId: test.Id,
+                    testTitle: test.Title,
+                    correctCount: correctCount,
+                    totalQuestions: totalQuestions,
+                    scorePercent: scorePercent,
+                    timeSpentSeconds: model.TimeSpent);
             }
             catch (Exception notifEx)
             {
-                Console.WriteLine("Lỗi gửi thông báo nộp bài: " + notifEx.Message);
+                _logger.LogError(notifEx, "Lỗi gửi thông báo nộp bài cho test {TestId} (học sinh {StudentId})", test.Id, model.StudentId);
             }
 
             return Ok(new
@@ -229,13 +203,5 @@ namespace LyraSAT.Controllers
 
             return Ok(reviewData);
         }
-    }
-
-    public class SubmitDto
-    {
-        public int StudentId { get; set; }
-        public int TestId { get; set; }
-        public int TimeSpent { get; set; } // Tính bằng giây
-        public Dictionary<int, string> Answers { get; set; } = new();
     }
 }

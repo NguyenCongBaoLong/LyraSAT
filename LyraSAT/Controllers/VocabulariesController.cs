@@ -1,5 +1,6 @@
 ﻿using LyraSAT.Data;
 using LyraSAT.Models;
+using LyraSAT.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -31,9 +32,10 @@ namespace LyraSAT.Controllers
         {
             try
             {
+                var lowerClassCode = ClassCodeHelper.Normalize(classCode).ToLower();
                 var seriesList = await _context.Vocabularies
                     .AsNoTracking()
-                    .Where(v => v.ClassCode == classCode || v.ClassCode == null)
+                    .Where(v => (v.ClassCode != null && v.ClassCode.ToLower() == lowerClassCode) || v.ClassCode == null)
                     .Select(v => v.SeriesName)
                     .Distinct()
                     .OrderBy(seriesName => seriesName)
@@ -56,9 +58,10 @@ namespace LyraSAT.Controllers
         {
             try
             {
+                var lowerClassCode = ClassCodeHelper.Normalize(classCode).ToLower();
                 var vocabList = await _context.Vocabularies
                     .AsNoTracking()
-                    .Where(v => (v.ClassCode == classCode || v.ClassCode == null) && v.SeriesName == seriesName)
+                    .Where(v => ((v.ClassCode != null && v.ClassCode.ToLower() == lowerClassCode) || v.ClassCode == null) && v.SeriesName == seriesName)
                     .OrderBy(v => v.Id)
                     .Select(v => new
                     {
@@ -86,6 +89,22 @@ namespace LyraSAT.Controllers
                 if (string.IsNullOrEmpty(vocab.Word) || string.IsNullOrEmpty(vocab.Definition))
                 {
                     return BadRequest(new { message = "Từ vựng và định nghĩa không được để trống." });
+                }
+
+                // Chuẩn hoá mã lớp; nếu có mã thì lớp đó phải tồn tại (tránh sinh mã lớp mồ côi)
+                var classCode = ClassCodeHelper.Normalize(vocab.ClassCode);
+                if (classCode.Length > 0)
+                {
+                    var targetClass = await ClassCodeHelper.FindClassAsync(_context, classCode);
+                    if (targetClass == null)
+                    {
+                        return BadRequest(new { message = $"Mã lớp '{classCode}' không tồn tại. Vui lòng kiểm tra lại." });
+                    }
+                    vocab.ClassCode = targetClass.ClassCode;
+                }
+                else
+                {
+                    vocab.ClassCode = null;
                 }
 
                 _context.Vocabularies.Add(vocab);
@@ -123,34 +142,21 @@ namespace LyraSAT.Controllers
 
             try
             {
+                var normalizedClassCode = ClassCodeHelper.Normalize(classCode);
+                if (normalizedClassCode.Length > 0)
+                {
+                    var targetClass = await ClassCodeHelper.FindClassAsync(_context, normalizedClassCode);
+                    if (targetClass == null)
+                    {
+                        return BadRequest(new { message = $"Mã lớp '{normalizedClassCode}' không tồn tại. Vui lòng kiểm tra lại." });
+                    }
+                    normalizedClassCode = targetClass.ClassCode;
+                }
+
                 using var stream = file.OpenReadStream();
                 var document = new XWPFDocument(stream);
 
-                var paragraphs = document.Paragraphs
-                    .Select(p => p.ParagraphText.Trim())
-                    .Where(text => !string.IsNullOrWhiteSpace(text))
-                    .ToList();
-
-                var vocabList = new List<Vocabulary>();
-
-                foreach (var line in paragraphs)
-                {
-                    // Hỗ trợ tách các trường bằng dấu gạch đứng (|), dấu phẩy (,) hoặc chấm phẩy (;)
-                    char separator = line.Contains('|') ? '|' : line.Contains(';') ? ';' : ',';
-                    var parts = line.Split(separator).Select(p => p.Trim()).ToArray();
-
-                    if (parts.Length >= 2 && !string.IsNullOrEmpty(parts[0]))
-                    {
-                        vocabList.Add(new Vocabulary
-                        {
-                            ClassCode = classCode,
-                            SeriesName = seriesName,
-                            Word = parts[0],
-                            Definition = parts[1],
-                            Example = parts.Length > 2 ? parts[2] : ""
-                        });
-                    }
-                }
+                var vocabList = VocabularyDocumentParser.Parse(document, normalizedClassCode, seriesName);
 
                 if (vocabList.Count == 0)
                 {

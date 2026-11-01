@@ -1,4 +1,5 @@
 using LyraSAT.Data;
+using LyraSAT.Services;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -9,6 +10,9 @@ builder.Services.AddDbContext<LyraSatDbContext>(options =>
         npgsqlOptions => npgsqlOptions.CommandTimeout(300)));
 
 builder.Services.AddControllers();
+
+// Tầng service dùng chung
+builder.Services.AddScoped<INotificationService, NotificationService>();
 
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();

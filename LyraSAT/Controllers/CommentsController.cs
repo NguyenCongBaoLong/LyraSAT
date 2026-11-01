@@ -1,5 +1,7 @@
 using LyraSAT.Data;
+using LyraSAT.DTOs;
 using LyraSAT.Models;
+using LyraSAT.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System;
@@ -9,67 +11,22 @@ using System.Threading.Tasks;
 
 namespace LyraSAT.Controllers
 {
-    public class CreateCommentDto
-    {
-        public int QuestionId { get; set; }
-        public int UserId { get; set; }
-        public int? ParentCommentId { get; set; }
-        public int? ParentId { get; set; } // Hỗ trợ frontend truyền parentId
-        public string Content { get; set; } = string.Empty;
-        public string? AttachmentUrl { get; set; }
-        public string? AttachmentType { get; set; } // "image" | "audio"
-        public int? AudioDuration { get; set; }
-    }
-
-    public class UpdateCommentDto
-    {
-        public int UserId { get; set; }
-        public string Content { get; set; } = string.Empty;
-    }
-
-    public class ToggleReactionDto
-    {
-        public int UserId { get; set; }
-        public string ReactionType { get; set; } = "heart";
-    }
-
-    public class PinCommentDto
-    {
-        public int UserId { get; set; }
-    }
-
-    public class CommentItemDto
-    {
-        public int Id { get; set; }
-        public int QuestionId { get; set; }
-        public int UserId { get; set; }
-        public string UserName { get; set; } = string.Empty;
-        public string UserRole { get; set; } = string.Empty;
-        public string Content { get; set; } = string.Empty;
-        public DateTime CreatedAt { get; set; }
-        public DateTime? UpdatedAt { get; set; }
-        public bool IsEdited { get; set; }
-        public int? ParentCommentId { get; set; }
-        public bool IsPinned { get; set; }
-        public DateTime? PinnedAt { get; set; }
-        public string? AttachmentUrl { get; set; }
-        public string? AttachmentType { get; set; }
-        public int? AudioDuration { get; set; }
-        public bool IsDeleted { get; set; }
-        public int LikesCount { get; set; }
-        public bool IsLikedByMe { get; set; }
-        public List<CommentItemDto> Replies { get; set; } = new List<CommentItemDto>();
-    }
-
     [Route("api/[controller]")]
     [ApiController]
     public class CommentsController : ControllerBase
     {
         private readonly LyraSatDbContext _context;
+        private readonly INotificationService _notificationService;
+        private readonly ILogger<CommentsController> _logger;
 
-        public CommentsController(LyraSatDbContext context)
+        public CommentsController(
+            LyraSatDbContext context,
+            INotificationService notificationService,
+            ILogger<CommentsController> logger)
         {
             _context = context;
+            _notificationService = notificationService;
+            _logger = logger;
         }
 
         // 1. Lấy toàn bộ bình luận của 1 câu hỏi theo dạng cây (Tree)
@@ -193,92 +150,12 @@ namespace LyraSAT.Controllers
                 // --- Xử lý Thông báo (Notification) ---
                 try
                 {
-                    var test = question.Test ?? await _context.Tests.FindAsync(question.TestId);
-                    string testTitle = test?.Title ?? "Bài test";
-                    string classCode = test?.ClassCode ?? string.Empty;
-
-                    // 1. Nếu là phản hồi (Reply): Gửi thông báo cho người viết câu bình luận gốc
-                    if (dto.ParentCommentId.HasValue)
-                    {
-                        var parentComment = await _context.QuestionComments.FindAsync(dto.ParentCommentId.Value);
-                        if (parentComment != null && parentComment.UserId != dto.UserId)
-                        {
-                            var replyNotif = new Notification
-                            {
-                                UserId = parentComment.UserId,
-                                ActorId = dto.UserId,
-                                Type = "comment_reply",
-                                Title = user.Role == "Teacher"
-                                    ? $"👩‍🏫 Giáo viên {user.FullName} đã giải đáp câu hỏi của bạn"
-                                    : $"💬 {user.FullName} đã trả lời bình luận của bạn",
-                                Content = string.IsNullOrWhiteSpace(dto.Content) ? "Đã gửi một tệp đính kèm" : (dto.Content.Length > 80 ? dto.Content.Substring(0, 80) + "..." : dto.Content),
-                                QuestionId = dto.QuestionId,
-                                TestId = question.TestId,
-                                CommentId = newComment.Id,
-                                IsRead = false,
-                                CreatedAt = DateTime.UtcNow
-                            };
-                            _context.Notifications.Add(replyNotif);
-                        }
-                    }
-
-                    // 2. Gửi thông báo cho toàn bộ Giáo viên phụ trách của lớp học này (2-4 giáo viên)
-                    var teacherIds = new List<int>();
-                    if (!string.IsNullOrEmpty(classCode))
-                    {
-                        var assigned = await _context.ClassTeachers
-                            .Where(ct => ct.ClassCode == classCode)
-                            .Select(ct => ct.TeacherId)
-                            .ToListAsync();
-                        teacherIds.AddRange(assigned);
-
-                        var targetClass = await _context.Classes.FirstOrDefaultAsync(c => c.ClassCode == classCode);
-                        if (targetClass != null && targetClass.TeacherId.HasValue && !teacherIds.Contains(targetClass.TeacherId.Value))
-                        {
-                            teacherIds.Add(targetClass.TeacherId.Value);
-                        }
-                    }
-
-                    // Fallback: nếu lớp chưa cấu hình giáo viên, lấy tất cả giáo viên trong hệ thống
-                    if (!teacherIds.Any())
-                    {
-                        var allTeachers = await _context.Users
-                            .Where(u => u.Role == "Teacher")
-                            .Select(u => u.Id)
-                            .ToListAsync();
-                        teacherIds.AddRange(allTeachers);
-                    }
-
-                    // Gửi thông báo chuông cho tất cả giáo viên (trừ chính người gửi nếu là giáo viên)
-                    foreach (var tId in teacherIds.Distinct())
-                    {
-                        if (tId != dto.UserId)
-                        {
-                            var teacherNotif = new Notification
-                            {
-                                UserId = tId,
-                                ActorId = dto.UserId,
-                                Type = "question_comment",
-                                Title = dto.ParentCommentId.HasValue
-                                    ? $"💬 {user.FullName} đã phản hồi thảo luận đề '{testTitle}'"
-                                    : $"💬 {user.FullName} có câu hỏi mới về đề '{testTitle}'",
-                                Content = string.IsNullOrWhiteSpace(dto.Content) ? "Đã gửi câu hỏi với tệp đính kèm" : (dto.Content.Length > 80 ? dto.Content.Substring(0, 80) + "..." : dto.Content),
-                                QuestionId = dto.QuestionId,
-                                TestId = question.TestId,
-                                CommentId = newComment.Id,
-                                IsRead = false,
-                                CreatedAt = DateTime.UtcNow
-                            };
-                            _context.Notifications.Add(teacherNotif);
-                        }
-                    }
-
-                    await _context.SaveChangesAsync();
+                    await _notificationService.NotifyCommentCreatedAsync(question, user, dto, newComment.Id);
                 }
                 catch (Exception notifEx)
                 {
-                    // Lỗi thông báo không chặn luồng comment chính
-                    Console.WriteLine("Lỗi gửi thông báo comment: " + notifEx.Message);
+                    // Lỗi thông báo không chặn luồng comment chính, nhưng phải ghi log để còn truy vết
+                    _logger.LogError(notifEx, "Lỗi gửi thông báo cho bình luận {CommentId} (câu hỏi {QuestionId})", newComment.Id, dto.QuestionId);
                 }
 
                 return Ok(new
@@ -382,6 +259,16 @@ namespace LyraSAT.Controllers
                 }
                 else
                 {
+                    // Xoá cứng: dọn luôn thông báo đang trỏ tới bình luận này,
+                    // Notification không có FK tới Comment nên DB không tự xoá.
+                    var relatedNotifications = await _context.Notifications
+                        .Where(n => n.CommentId == id)
+                        .ToListAsync();
+                    if (relatedNotifications.Any())
+                    {
+                        _context.Notifications.RemoveRange(relatedNotifications);
+                    }
+
                     _context.QuestionComments.Remove(comment);
                 }
 

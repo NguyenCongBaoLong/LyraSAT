@@ -1,5 +1,6 @@
-﻿using LyraSAT.Data;
+using LyraSAT.Data;
 using LyraSAT.Models;
+using LyraSAT.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using NPOI.XWPF.UserModel;
@@ -15,10 +16,17 @@ namespace LyraSAT.Controllers
     public class TestsController : ControllerBase
     {
         private readonly LyraSatDbContext _context;
+        private readonly INotificationService _notificationService;
+        private readonly ILogger<TestsController> _logger;
 
-        public TestsController(LyraSatDbContext context)
+        public TestsController(
+            LyraSatDbContext context,
+            INotificationService notificationService,
+            ILogger<TestsController> logger)
         {
             _context = context;
+            _notificationService = notificationService;
+            _logger = logger;
         }
 
         // Lấy danh sách bài test theo mã lớp (Mục Mission)
@@ -37,9 +45,11 @@ namespace LyraSAT.Controllers
             }
 
             var now = DateTime.UtcNow;
+            var normalizedClassCode = ClassCodeHelper.Normalize(classCode).ToLower();
+
             var tests = _context.Tests
                 .AsNoTracking()
-                .Where(t => t.ClassCode == classCode);
+                .Where(t => t.ClassCode != null && t.ClassCode.ToLower() == normalizedClassCode);
 
             tests = status?.ToLowerInvariant() switch
             {
@@ -108,8 +118,25 @@ namespace LyraSAT.Controllers
                 model.MaxAttempts = null;
             }
 
+            model.ClassCode = ClassCodeHelper.Normalize(model.ClassCode);
+            if (model.ClassCode.Length == 0)
+            {
+                return BadRequest(new { message = "Vui lòng chọn lớp học cho đề thi." });
+            }
+
+            // Lưu đúng mã lớp như trong bảng Classes để không sinh ra biến thể hoa/thường
+            var targetClass = await ClassCodeHelper.FindClassAsync(_context, model.ClassCode);
+            if (targetClass == null)
+            {
+                return BadRequest(new { message = $"Mã lớp '{model.ClassCode}' không tồn tại. Vui lòng kiểm tra lại." });
+            }
+            model.ClassCode = targetClass.ClassCode;
+
             _context.Tests.Add(model);
             await _context.SaveChangesAsync();
+
+            await TryNotifyTestAssignedAsync(model, null);
+
             return Ok(new { message = "Tạo bài tập thành công!", testId = model.Id });
         }
 
@@ -139,11 +166,25 @@ namespace LyraSAT.Controllers
             {
                 int? finalMaxAttempts = (maxAttempts.HasValue && maxAttempts.Value > 0) ? maxAttempts.Value : null;
 
+                // 0. Chuẩn hoá và kiểm tra mã lớp: chặn tạo đề cho lớp không tồn tại (nguồn gốc lỗi "lớp ma")
+                string normalizedClassCode = ClassCodeHelper.Normalize(classCode);
+                if (normalizedClassCode.Length == 0)
+                {
+                    return BadRequest(new { message = "Vui lòng chọn lớp học cho đề thi." });
+                }
+
+                // Dùng đúng chuỗi mã lớp trong bảng Classes (tránh lệch hoa/thường giữa các bảng)
+                var targetClass = await ClassCodeHelper.FindClassAsync(_context, normalizedClassCode);
+                if (targetClass == null)
+                {
+                    return BadRequest(new { message = $"Mã lớp '{normalizedClassCode}' không tồn tại. Vui lòng chọn lại lớp." });
+                }
+                normalizedClassCode = targetClass.ClassCode;
                 // 1. Tạo bài test mới trong cơ sở dữ liệu
                 var newTest = new Test
                 {
                     Title = title,
-                    ClassCode = classCode,
+                    ClassCode = normalizedClassCode,
                     Duration = duration,
                     TestType = testType,
                     Deadline = deadline?.UtcDateTime,
@@ -159,38 +200,10 @@ namespace LyraSAT.Controllers
                 using var stream = file.OpenReadStream();
                 var document = new XWPFDocument(stream);
 
-                var extractedLines = new List<string>();
-
-                foreach (var element in document.BodyElements)
-                {
-                    if (element is XWPFParagraph paragraph)
-                    {
-                        AddParagraphLines(extractedLines, paragraph.ParagraphText);
-                    }
-                    else if (element is XWPFTable table)
-                    {
-                        // Chuyển đổi bảng Word thành chuỗi HTML chuẩn
-                        var htmlTable = new System.Text.StringBuilder();
-                        htmlTable.Append("<div class='passage-table-wrapper'><table class='passage-table'><tbody>");
-
-                        foreach (var row in table.Rows)
-                        {
-                            htmlTable.Append("<tr>");
-                            foreach (var cell in row.GetTableCells())
-                            {
-                                string cellText = System.Net.WebUtility.HtmlEncode(cell.GetText());
-                                htmlTable.Append($"<td>{cellText}</td>");
-                            }
-                            htmlTable.Append("</tr>");
-                        }
-                        htmlTable.Append("</tbody></table></div>");
-
-                        extractedLines.Add(htmlTable.ToString());
-                    }
-                }
+                var extractedLines = SatWordTestParser.ExtractDocumentLines(document);
 
                 // 3. Bóc tách câu hỏi SAT
-                var questions = ParseSatWordFile(extractedLines, newTest.Id);
+                var questions = SatWordTestParser.Parse(extractedLines, newTest.Id);
 
                 // KIỂM TRA: Nếu không có câu hỏi hợp lệ -> Xóa bài test vừa tạo và báo lỗi
                 if (questions.Count == 0)
@@ -203,6 +216,9 @@ namespace LyraSAT.Controllers
                 _context.Questions.AddRange(questions);
                 await _context.SaveChangesAsync();
 
+                // Báo cho học sinh của lớp biết có đề mới
+                await TryNotifyTestAssignedAsync(newTest, null);
+
                 return Ok(new { message = $"Tải lên và xử lý thành công {questions.Count} câu hỏi từ file Word!", testId = newTest.Id });
             }
             catch (Exception ex)
@@ -212,159 +228,17 @@ namespace LyraSAT.Controllers
             }
         }
 
-        private List<Question> ParseSatWordFile(List<string> lines, int testId)
-        {
-            var questions = new List<Question>();
-            Question? currentQ = null;
-            var passageLines = new List<string>();
-            var questionLines = new List<string>();
-            bool isReadingPassage = true;
-
-            foreach (var rawLine in lines)
-            {
-                string line = rawLine.Trim();
-                if (string.IsNullOrEmpty(line))
-                {
-                    if (currentQ != null)
-                    {
-                        if (isReadingPassage) passageLines.Add(rawLine);
-                        else questionLines.Add(rawLine);
-                    }
-                    continue;
-                }
-
-                if (line.StartsWith("Text:", StringComparison.OrdinalIgnoreCase))
-                {
-                    if (currentQ != null)
-                    {
-                        currentQ.PassageText = JoinPreservingLineBreaks(passageLines);
-                        currentQ.QuestionText = JoinPreservingLineBreaks(questionLines);
-
-                        // Kiểm tra an toàn: Bắt buộc phải có QuestionText và OptionA để tránh lỗi cột NOT NULL của DB
-                        if (!string.IsNullOrEmpty(currentQ.QuestionText) && !string.IsNullOrEmpty(currentQ.OptionA))
-                        {
-                            questions.Add(currentQ);
-                        }
-                    }
-
-                    currentQ = new Question { TestId = testId };
-                    passageLines.Clear();
-                    questionLines.Clear();
-                    isReadingPassage = true;
-
-                    string contentAfterColon = line.Substring(5).TrimStart();
-                    if (!string.IsNullOrEmpty(contentAfterColon))
-                    {
-                        passageLines.Add(contentAfterColon);
-                    }
-                }
-                else if (line.StartsWith("Question:", StringComparison.OrdinalIgnoreCase) || line.StartsWith("Câu:", StringComparison.OrdinalIgnoreCase))
-                {
-                    if (currentQ == null)
-                    {
-                        currentQ = new Question { TestId = testId };
-                    }
-
-                    isReadingPassage = false;
-
-                    string contentAfterColon = line.Substring(line.IndexOf(':') + 1).TrimStart();
-                    if (!string.IsNullOrEmpty(contentAfterColon))
-                    {
-                        questionLines.Add(contentAfterColon);
-                    }
-                }
-                else if (currentQ != null)
-                {
-                    if (line.Contains("A:") && line.Contains("B:") && line.Contains("C:") && line.Contains("D:"))
-                    {
-                        ExtractAllOptionsInline(currentQ, line);
-                    }
-                    else if (System.Text.RegularExpressions.Regex.IsMatch(line, @"^[A-D][:\.]"))
-                    {
-                        char optKey = char.ToUpper(line[0]);
-                        string optVal = line.Substring(2).TrimStart();
-
-                        if (optKey == 'A') currentQ.OptionA = optVal;
-                        else if (optKey == 'B') currentQ.OptionB = optVal;
-                        else if (optKey == 'C') currentQ.OptionC = optVal;
-                        else if (optKey == 'D') currentQ.OptionD = optVal;
-                    }
-                    else if (line.StartsWith("ANSWER", StringComparison.OrdinalIgnoreCase) || line.StartsWith("Đáp án", StringComparison.OrdinalIgnoreCase))
-                    {
-                        var parts = line.Split(new[] { ':', ' ' }, StringSplitOptions.RemoveEmptyEntries);
-                        if (parts.Length > 1)
-                        {
-                            currentQ.CorrectAnswer = parts.Last().Trim().ToUpper();
-                        }
-                    }
-                    else if (line.StartsWith("VIDEO", StringComparison.OrdinalIgnoreCase) || line.StartsWith("Link video", StringComparison.OrdinalIgnoreCase))
-                    {
-                        var colonIdx = line.IndexOf(':');
-                        if (colonIdx >= 0 && colonIdx < line.Length - 1)
-                        {
-                            currentQ.VideoExplanationUrl = line.Substring(colonIdx + 1).Trim();
-                        }
-                    }
-                    else
-                    {
-                        if (isReadingPassage)
-                        {
-                            passageLines.Add(line);
-                        }
-                        else
-                        {
-                            questionLines.Add(line);
-                        }
-                    }
-                }
-                else
-                {
-                    passageLines.Add(line);
-                }
-            }
-
-            if (currentQ != null)
-            {
-                currentQ.PassageText = JoinPreservingLineBreaks(passageLines);
-                currentQ.QuestionText = JoinPreservingLineBreaks(questionLines);
-
-                if (!string.IsNullOrEmpty(currentQ.QuestionText) && !string.IsNullOrEmpty(currentQ.OptionA))
-                {
-                    questions.Add(currentQ);
-                }
-            }
-
-            return questions;
-        }
-
-        private static void AddParagraphLines(List<string> lines, string? paragraphText)
-        {
-            if (paragraphText == null) return;
-
-            var normalizedText = paragraphText.Replace("\r\n", "\n").Replace('\r', '\n');
-            lines.AddRange(normalizedText.Split('\n', StringSplitOptions.None));
-        }
-
-        private static string JoinPreservingLineBreaks(List<string> lines)
-        {
-            return string.Join("\n", lines).Trim('\r', '\n');
-        }
-
-        private void ExtractAllOptionsInline(Question q, string text)
+        /// <summary>Gửi thông báo giao đề; lỗi thông báo không được làm hỏng luồng tạo đề.</summary>
+        private async Task TryNotifyTestAssignedAsync(Test test, int? actorId)
         {
             try
             {
-                var parts = System.Text.RegularExpressions.Regex.Split(text, @"(?=[A-D][:\.])");
-                foreach (var p in parts)
-                {
-                    string trimmed = p.TrimStart();
-                    if (trimmed.StartsWith("A:") || trimmed.StartsWith("A.")) q.OptionA = trimmed.Substring(2).Trim();
-                    else if (trimmed.StartsWith("B:") || trimmed.StartsWith("B.")) q.OptionB = trimmed.Substring(2).Trim();
-                    else if (trimmed.StartsWith("C:") || trimmed.StartsWith("C.")) q.OptionC = trimmed.Substring(2).Trim();
-                    else if (trimmed.StartsWith("D:") || trimmed.StartsWith("D.")) q.OptionD = trimmed.Substring(2).Trim();
-                }
+                await _notificationService.NotifyTestAssignedAsync(test, actorId);
             }
-            catch { }
+            catch (Exception notifEx)
+            {
+                _logger.LogError(notifEx, "Lỗi gửi thông báo giao đề test {TestId}", test.Id);
+            }
         }
 
         [HttpGet("class/{classCode}/results")]
@@ -373,9 +247,11 @@ namespace LyraSAT.Controllers
             [FromQuery] int page = 1,
             [FromQuery] int pageSize = 10)
         {
+            var normalizedClassCode = ClassCodeHelper.Normalize(classCode).ToLower();
+
             var results = await _context.Tests
                 .AsNoTracking()
-                .Where(t => t.ClassCode == classCode)
+                .Where(t => t.ClassCode != null && t.ClassCode.ToLower() == normalizedClassCode)
                 .OrderByDescending(t => t.CreatedAt)
                 .ThenByDescending(t => t.Id)
                 .ToPagedResultAsync(page, pageSize);
@@ -389,16 +265,19 @@ namespace LyraSAT.Controllers
             [FromQuery] int page = 1,
             [FromQuery] int pageSize = 10)
         {
+            var normalizedClassCode = ClassCodeHelper.Normalize(classCode);
+            var lowerClassCode = normalizedClassCode.ToLower();
+
             var students = await _context.StudentClasses
                 .AsNoTracking()
-                .Where(sc => sc.Class != null && sc.Class.ClassCode == classCode && sc.User != null && sc.User.Role == "Student")
+                .Where(sc => sc.Class != null && sc.Class.ClassCode.ToLower() == lowerClassCode && sc.User != null && sc.User.Role == "Student")
                 .OrderBy(sc => sc.User!.FullName)
                 .ThenBy(sc => sc.UserId)
                 .Select(sc => new
                 {
                     sc.User!.Id,
                     sc.User.FullName,
-                    ClassCode = classCode,
+                    ClassCode = normalizedClassCode,
                     TuitionPaid = sc.User.TuitionStatus ?? false
                 })
                 .ToPagedResultAsync(page, pageSize);
@@ -572,6 +451,15 @@ namespace LyraSAT.Controllers
                     _context.Questions.RemoveRange(questions);
                 }
 
+                // Dọn thông báo trỏ tới đề/câu hỏi sắp xóa (tránh chuông còn thông báo "mồ côi")
+                var relatedNotifications = await _context.Notifications
+                    .Where(n => n.TestId == id || (n.QuestionId.HasValue && questionIds.Contains(n.QuestionId.Value)))
+                    .ToListAsync();
+                if (relatedNotifications.Any())
+                {
+                    _context.Notifications.RemoveRange(relatedNotifications);
+                }
+
                 _context.Tests.Remove(test);
                 await _context.SaveChangesAsync();
 
@@ -590,17 +478,20 @@ namespace LyraSAT.Controllers
         {
             try
             {
+                var normalizedClassCode = ClassCodeHelper.Normalize(classCode);
+                var lowerClassCode = normalizedClassCode.ToLower();
+
                 var assignment = await _context.StudentClasses
                     .Include(sc => sc.Class)
                     .Include(sc => sc.User)
-                    .FirstOrDefaultAsync(sc => sc.UserId == studentId && sc.Class != null && sc.Class.ClassCode == classCode);
+                    .FirstOrDefaultAsync(sc => sc.UserId == studentId && sc.Class != null && sc.Class.ClassCode.ToLower() == lowerClassCode);
                 if (assignment == null)
                 {
                     return NotFound(new { message = "Không tìm thấy học sinh trong lớp này." });
                 }
 
                 _context.StudentClasses.Remove(assignment);
-                if (assignment.User != null && assignment.User.ClassCode == classCode)
+                if (assignment.User != null && ClassCodeHelper.SameCode(assignment.User.ClassCode, normalizedClassCode))
                 {
                     var fallbackClassCode = await _context.StudentClasses
                         .Where(sc => sc.UserId == studentId && sc.ClassId != assignment.ClassId)
