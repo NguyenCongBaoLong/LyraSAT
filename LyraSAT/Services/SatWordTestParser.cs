@@ -17,7 +17,7 @@ namespace LyraSAT.Services
             {
                 if (element is XWPFParagraph paragraph)
                 {
-                    AddParagraphLines(extractedLines, paragraph.ParagraphText);
+                    AddParagraphLines(extractedLines, paragraph);
                 }
                 else if (element is XWPFTable table)
                 {
@@ -169,12 +169,26 @@ namespace LyraSAT.Services
             return questions;
         }
 
-        private static void AddParagraphLines(List<string> lines, string? paragraphText)
+        private static void AddParagraphLines(List<string> lines, XWPFParagraph paragraph)
         {
+            var paragraphText = paragraph.ParagraphText;
             if (paragraphText == null) return;
 
             var normalizedText = paragraphText.Replace("\r\n", "\n").Replace('\r', '\n');
-            lines.AddRange(normalizedText.Split('\n', StringSplitOptions.None));
+            var prefix = string.IsNullOrEmpty(paragraph.GetNumID()) ? string.Empty : "• ";
+            var paragraphLines = normalizedText.Split('\n', StringSplitOptions.None);
+
+            for (var index = 0; index < paragraphLines.Length; index++)
+            {
+                if (index == 0 && !string.IsNullOrWhiteSpace(paragraphLines[index]))
+                {
+                    lines.Add(prefix + paragraphLines[index]);
+                }
+                else
+                {
+                    lines.Add(paragraphLines[index]);
+                }
+            }
         }
 
         private static string JoinPreservingLineBreaks(List<string> lines)
