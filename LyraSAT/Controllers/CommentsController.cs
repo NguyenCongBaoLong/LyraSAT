@@ -246,6 +246,9 @@ namespace LyraSAT.Controllers
                 bool canDelete = comment.UserId == currentUserId || user.Role == "Teacher" || user.Role == "Admin";
                 if (!canDelete)
                 {
+                    _logger.LogWarning(
+                        "Từ chối xóa bình luận {CommentId}: user {UserId} ({Role}) không phải tác giả {AuthorId}",
+                        id, currentUserId, user.Role, comment.UserId);
                     return Forbid("Bạn không có quyền xóa bình luận này.");
                 }
 
@@ -271,6 +274,12 @@ namespace LyraSAT.Controllers
 
                     _context.QuestionComments.Remove(comment);
                 }
+
+                // Ghi lại ai xóa để còn truy vết (DB chưa có cột audit)
+                _logger.LogInformation(
+                    "Xóa bình luận {CommentId} của user {AuthorId} ở câu hỏi {QuestionId}: người xóa {UserId} ({UserName}, {Role}), kiểu {Mode}",
+                    id, comment.UserId, comment.QuestionId, currentUserId, user.FullName, user.Role,
+                    comment.IsDeleted ? "soft" : "hard");
 
                 await _context.SaveChangesAsync();
                 return Ok(new { message = "Xóa bình luận thành công!" });
