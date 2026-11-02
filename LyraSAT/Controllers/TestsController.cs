@@ -95,7 +95,9 @@ namespace LyraSAT.Controllers
             if (test == null) return NotFound(new { message = "Không tìm thấy bài test!" });
 
             // Ẩn đáp án đúng và video giải thích khi đang làm bài
-            var secureQuestions = test.Questions.Select(q => new
+            var secureQuestions = test.Questions
+                .OrderBy(q => q.Id)
+                .Select(q => new
             {
                 q.Id,
                 q.QuestionText,
@@ -295,7 +297,9 @@ namespace LyraSAT.Controllers
                     title = t.Title ?? "Bài test không tên",
                     duration = t.Duration,
                     videoExplanationUrl = t.VideoExplanationUrl ?? "",
-                    questions = t.Questions.Select(q => new
+                    questions = t.Questions
+                        .OrderBy(q => q.Id)
+                        .Select(q => new
                     {
                         id = q.Id,
                         questionText = q.QuestionText ?? "",
