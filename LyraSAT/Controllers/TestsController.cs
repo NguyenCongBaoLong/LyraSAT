@@ -319,13 +319,22 @@ namespace LyraSAT.Controllers
         [HttpGet("{testId}/submissions")]
         public async Task<IActionResult> GetTestSubmissions(
             int testId,
+            [FromQuery] int? studentId,
             [FromQuery] int page = 1,
             [FromQuery] int pageSize = 8)
         {
             try
             {
-                var submissions = await _context.Submissions
-                    .Where(s => s.TestId == testId)
+                var query = _context.Submissions
+                    .Where(s => s.TestId == testId);
+
+                // Dùng cho deep-link từ thông báo: mở đúng bài nộp của một học sinh.
+                if (studentId.HasValue)
+                {
+                    query = query.Where(s => s.StudentId == studentId.Value);
+                }
+
+                var submissions = await query
                     .AsNoTracking()
                     .OrderByDescending(s => s.SubmittedAt)
                     .ThenByDescending(s => s.Id)
@@ -333,6 +342,7 @@ namespace LyraSAT.Controllers
                     .Select(s => new
                     {
                         id = s.Id,
+                        studentId = s.StudentId,
                         studentName = s.Student != null ? (s.Student.FullName ?? s.Student.Email) : "Học sinh",
                         submittedAt = s.SubmittedAt,
                         timeSpent = s.TimeSpent,

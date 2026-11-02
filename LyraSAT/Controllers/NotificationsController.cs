@@ -21,14 +21,25 @@ namespace LyraSAT.Controllers
 
         // 1. Lấy danh sách thông báo của người dùng
         [HttpGet]
-        public async Task<IActionResult> GetNotifications([FromQuery] int userId, [FromQuery] int page = 1, [FromQuery] int pageSize = 15)
+        public async Task<IActionResult> GetNotifications([FromQuery] int userId, [FromQuery] bool unreadOnly = false, [FromQuery] int page = 1, [FromQuery] int pageSize = 15)
         {
             try
             {
+                // Chặn pageSize quá lớn để client không tải cả bảng cùng lúc.
+                if (pageSize <= 0) pageSize = 15;
+                if (pageSize > 100) pageSize = 100;
+                if (page < 1) page = 1;
+
                 var query = _context.Notifications
                     .AsNoTracking()
-                    .Where(n => n.UserId == userId)
-                    .OrderByDescending(n => n.CreatedAt);
+                    .Where(n => n.UserId == userId);
+
+                if (unreadOnly)
+                {
+                    query = query.Where(n => !n.IsRead);
+                }
+
+                query = query.OrderByDescending(n => n.CreatedAt);
 
                 var totalCount = await query.CountAsync();
                 var items = await query

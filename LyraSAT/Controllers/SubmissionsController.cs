@@ -128,12 +128,19 @@ namespace LyraSAT.Controllers
         public async Task<IActionResult> GetStudentHistory(
             int studentId,
             [FromQuery] string? search,
+            [FromQuery] int? testId,
             [FromQuery] int page = 1,
             [FromQuery] int pageSize = 8)
         {
             var historyQuery = _context.Submissions
                 .AsNoTracking()
                 .Where(s => s.StudentId == studentId);
+
+            // Dùng cho deep-link từ thông báo: lấy đúng bài nộp của một đề.
+            if (testId.HasValue)
+            {
+                historyQuery = historyQuery.Where(s => s.TestId == testId.Value);
+            }
 
             if (!string.IsNullOrWhiteSpace(search))
             {
@@ -147,6 +154,7 @@ namespace LyraSAT.Controllers
                 .Select(s => new
                 {
                     s.Id,
+                    TestId = s.TestId,
                     TestTitle = s.Test.Title,
                     s.CorrectCount,
                     TotalQuestions = s.TotalQuestions,
