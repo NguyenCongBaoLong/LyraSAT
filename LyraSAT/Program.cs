@@ -11,6 +11,13 @@ builder.Services.AddDbContext<LyraSatDbContext>(options =>
 
 builder.Services.AddControllers();
 
+// Video chữa bài của giáo viên có thể vài chục MB, mặc định multipart chỉ 128MB
+// và bị Kestrel chặn sớm; nâng lên để endpoint upload video nhận được file.
+builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(options =>
+{
+    options.MultipartBodyLengthLimit = 160L * 1024 * 1024;
+});
+
 // Tầng service dùng chung
 builder.Services.AddScoped<INotificationService, NotificationService>();
 

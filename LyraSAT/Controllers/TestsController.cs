@@ -1,11 +1,14 @@
 using LyraSAT.Data;
+using LyraSAT.DTOs;
 using LyraSAT.Models;
 using LyraSAT.Services;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using NPOI.XWPF.UserModel;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 
@@ -18,15 +21,18 @@ namespace LyraSAT.Controllers
         private readonly LyraSatDbContext _context;
         private readonly INotificationService _notificationService;
         private readonly ILogger<TestsController> _logger;
+        private readonly IWebHostEnvironment _env;
 
         public TestsController(
             LyraSatDbContext context,
             INotificationService notificationService,
-            ILogger<TestsController> logger)
+            ILogger<TestsController> logger,
+            IWebHostEnvironment env)
         {
             _context = context;
             _notificationService = notificationService;
             _logger = logger;
+            _env = env;
         }
 
         // Lấy danh sách bài test theo mã lớp (Mục Mission)
@@ -78,7 +84,9 @@ namespace LyraSAT.Controllers
                     t.Duration,
                     t.Deadline,
                     t.TestType,
-                    t.CreatedAt
+                    t.CreatedAt,
+                    // Giáo viên cần thấy đề nào đã có video chữa bài, để bổ sung sau khi up đề.
+                    t.VideoExplanationUrl
                 })
                 .ToPagedResultAsync(page, pageSize);
             return Ok(result);
@@ -227,6 +235,106 @@ namespace LyraSAT.Controllers
             {
                 var innerMsg = ex.InnerException != null ? " -> " + ex.InnerException.Message : "";
                 return StatusCode(500, new { message = "Lỗi khi xử lý file Word: " + ex.Message + innerMsg });
+            }
+        }
+
+        // Giới hạn dung lượng file video chữa bài: 150MB.
+        private const long MaxVideoBytes = 150L * 1024 * 1024;
+
+        private static readonly string[] AllowedVideoExts =
+            { ".mp4", ".m4v", ".webm", ".mov", ".ogv" };
+
+        /// <summary>
+        /// Gắn / đổi / gỡ link video chữa bài cho một đề ĐÃ giao.
+        /// Giáo viên không phải tạo lại đề chỉ vì quên chèn video.
+        /// </summary>
+        [HttpPut("{id}/video")]
+        public async Task<IActionResult> UpdateVideoExplanation(int id, [FromBody] UpdateVideoExplanationDto dto)
+        {
+            var test = await _context.Tests.FirstOrDefaultAsync(t => t.Id == id);
+            if (test == null)
+            {
+                return NotFound(new { message = "Không tìm thấy bài test!" });
+            }
+
+            var url = dto?.VideoExplanationUrl?.Trim() ?? string.Empty;
+
+            // Chỉ nhận link http(s) hoặc file đã upload nội bộ; chặn javascript:, data: ...
+            if (url.Length > 0 &&
+                !url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) &&
+                !url.StartsWith("https://", StringComparison.OrdinalIgnoreCase) &&
+                !url.StartsWith("/uploads/", StringComparison.OrdinalIgnoreCase))
+            {
+                return BadRequest(new { message = "Link video không hợp lệ. Chỉ nhận link http(s) hoặc file đã tải lên." });
+            }
+
+            test.VideoExplanationUrl = url.Length == 0 ? null : url;
+            await _context.SaveChangesAsync();
+
+            return Ok(new
+            {
+                message = url.Length == 0 ? "Đã gỡ video chữa bài." : "Đã lưu video chữa bài.",
+                testId = test.Id,
+                videoExplanationUrl = test.VideoExplanationUrl ?? ""
+            });
+        }
+
+        /// <summary>
+        /// Tải file video chữa bài lên cho một đề ĐÃ giao, rồi gán luôn vào đề.
+        /// Lưu ý: file nằm trên ổ đĩa của server, sẽ mất nếu server deploy lại.
+        /// </summary>
+        [HttpPost("{id}/video-file")]
+        [Consumes("multipart/form-data")]
+        [RequestSizeLimit(MaxVideoBytes + 5 * 1024 * 1024)]
+        [RequestFormLimits(MultipartBodyLengthLimit = MaxVideoBytes + 5 * 1024 * 1024)]
+        public async Task<IActionResult> UploadVideoExplanation(int id, IFormFile file)
+        {
+            var test = await _context.Tests.FirstOrDefaultAsync(t => t.Id == id);
+            if (test == null)
+            {
+                return NotFound(new { message = "Không tìm thấy bài test!" });
+            }
+
+            if (file == null || file.Length == 0)
+            {
+                return BadRequest(new { message = "Không tìm thấy file video tải lên." });
+            }
+
+            if (file.Length > MaxVideoBytes)
+            {
+                return BadRequest(new { message = "File video vượt quá giới hạn 150MB." });
+            }
+
+            var ext = Path.GetExtension(file.FileName ?? string.Empty).ToLowerInvariant();
+            if (!AllowedVideoExts.Contains(ext))
+            {
+                return BadRequest(new { message = "Định dạng video không hỗ trợ. Chỉ nhận mp4, m4v, webm, mov, ogv." });
+            }
+
+            try
+            {
+                var webRoot = _env.WebRootPath ?? Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+                var uploadDir = Path.Combine(webRoot, "uploads", "tests");
+                Directory.CreateDirectory(uploadDir);
+
+                var fileName = $"{Guid.NewGuid():N}{ext}";
+                var filePath = Path.Combine(uploadDir, fileName);
+
+                using (var stream = new FileStream(filePath, FileMode.Create))
+                {
+                    await file.CopyToAsync(stream);
+                }
+
+                var url = $"/uploads/tests/{fileName}";
+                test.VideoExplanationUrl = url;
+                await _context.SaveChangesAsync();
+
+                return Ok(new { message = "Đã tải video lên và gắn vào bài test.", videoExplanationUrl = url });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi lưu video chữa bài cho test {TestId}", id);
+                return StatusCode(500, new { message = "Lỗi khi lưu file video: " + ex.Message });
             }
         }
 
