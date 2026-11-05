@@ -15,4 +15,10 @@ namespace LyraSAT.DTOs
         public string Title { get; set; } = string.Empty;
         public string Url { get; set; } = string.Empty;
     }
+
+    // Gắn link video chữa riêng cho một câu hỏi. Url rỗng = gỡ video của câu đó.
+    public class QuestionVideoDto
+    {
+        public string? Url { get; set; }
+    }
 }
