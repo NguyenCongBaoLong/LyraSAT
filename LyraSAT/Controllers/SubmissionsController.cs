@@ -161,7 +161,8 @@ namespace LyraSAT.Controllers
                     s.Score,
                     s.TimeSpent,
                     s.SubmittedAt,
-                    VideoExplanationUrl = s.Test != null ? s.Test.VideoExplanationUrl : null
+                    VideoExplanationUrl = s.Test != null ? s.Test.VideoExplanationUrl : null,
+                    VideoCount = s.Test != null ? s.Test.Videos.Count() : 0
                 })
                 .ToPagedResultAsync(page, pageSize);
 
@@ -186,6 +187,18 @@ namespace LyraSAT.Controllers
                 submissionId = submission.Id,
                 testTitle = submission.Test?.Title ?? "Bài test",
                 videoExplanationUrl = submission.Test?.VideoExplanationUrl ?? "",
+                videos = await _context.TestVideos
+                    .AsNoTracking()
+                    .Where(v => v.TestId == submission.TestId)
+                    .OrderBy(v => v.SortOrder)
+                    .ThenBy(v => v.Id)
+                    .Select(v => new LyraSAT.DTOs.TestVideoItemDto
+                    {
+                        Id = v.Id,
+                        Title = v.Title ?? "",
+                        Url = v.Url
+                    })
+                    .ToListAsync(),
                 correctCount = submission.CorrectCount,
                 totalQuestions = submission.TotalQuestions,
                 score = submission.Score,

@@ -86,7 +86,8 @@ namespace LyraSAT.Controllers
                     t.TestType,
                     t.CreatedAt,
                     // Giáo viên cần thấy đề nào đã có video chữa bài, để bổ sung sau khi up đề.
-                    t.VideoExplanationUrl
+                    t.VideoExplanationUrl,
+                    VideoCount = t.Videos.Count()
                 })
                 .ToPagedResultAsync(page, pageSize);
             return Ok(result);
@@ -225,6 +226,22 @@ namespace LyraSAT.Controllers
 
                 _context.Questions.AddRange(questions);
                 await _context.SaveChangesAsync();
+
+                // Nếu giáo viên dán link video ngay khi giao đề, đồng thời tạo luôn
+                // một dòng trong TestVideos để danh sách nhiều video thấy được ngay.
+                var initialVideo = videoExplanationUrl?.Trim();
+                if (!string.IsNullOrWhiteSpace(initialVideo))
+                {
+                    _context.TestVideos.Add(new LyraSAT.Models.TestVideo
+                    {
+                        TestId = newTest.Id,
+                        Title = "Video chữa bài",
+                        Url = initialVideo,
+                        SortOrder = 0,
+                        CreatedAt = DateTime.UtcNow
+                    });
+                    await _context.SaveChangesAsync();
+                }
 
                 // Báo cho học sinh của lớp biết có đề mới
                 await TryNotifyTestAssignedAsync(newTest, null);
@@ -405,6 +422,15 @@ namespace LyraSAT.Controllers
                     title = t.Title ?? "Bài test không tên",
                     duration = t.Duration,
                     videoExplanationUrl = t.VideoExplanationUrl ?? "",
+                    videos = t.Videos
+                        .OrderBy(v => v.SortOrder)
+                        .ThenBy(v => v.Id)
+                        .Select(v => new
+                        {
+                            id = v.Id,
+                            title = v.Title ?? "",
+                            url = v.Url
+                        }).ToList(),
                     questions = t.Questions
                         .OrderBy(q => q.Id)
                         .Select(q => new
@@ -495,6 +521,18 @@ namespace LyraSAT.Controllers
                         submissionCount = submissionCount,
                         maxAttempts = test.MaxAttempts.Value,
                         videoExplanationUrl = test.VideoExplanationUrl,
+                        videos = await _context.TestVideos
+                            .AsNoTracking()
+                            .Where(v => v.TestId == testId)
+                            .OrderBy(v => v.SortOrder)
+                            .ThenBy(v => v.Id)
+                            .Select(v => new LyraSAT.DTOs.TestVideoItemDto
+                            {
+                                Id = v.Id,
+                                Title = v.Title ?? "",
+                                Url = v.Url
+                            })
+                            .ToListAsync(),
                         testTitle = test.Title,
                         message = $"Bạn đã hết số lần làm bài cho phép ({submissionCount}/{test.MaxAttempts.Value})."
                     });

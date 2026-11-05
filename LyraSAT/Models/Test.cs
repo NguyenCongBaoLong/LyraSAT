@@ -19,5 +19,6 @@ namespace LyraSAT.Models
 
         public ICollection<Question> Questions { get; set; }
         public ICollection<Submission> Submissions { get; set; }
+        public ICollection<TestVideo> Videos { get; set; }
     }
 }

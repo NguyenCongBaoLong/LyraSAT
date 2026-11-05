@@ -58,6 +58,32 @@ namespace LyraSAT.Migrations
                     b.ToTable("Classes");
                 });
 
+            modelBuilder.Entity("LyraSAT.Models.ClassTeacher", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("AssignedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ClassCode")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<int>("TeacherId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TeacherId");
+
+                    b.ToTable("ClassTeachers");
+                });
+
             modelBuilder.Entity("LyraSAT.Models.CommentReaction", b =>
                 {
                     b.Property<int>("Id")
@@ -279,8 +305,6 @@ namespace LyraSAT.Migrations
 
                     b.HasIndex("ClassId");
 
-                    b.HasIndex("UserId");
-
                     b.HasIndex("UserId", "ClassId")
                         .IsUnique();
 
@@ -409,6 +433,37 @@ namespace LyraSAT.Migrations
                     b.ToTable("Tests");
                 });
 
+            modelBuilder.Entity("LyraSAT.Models.TestVideo", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("TestId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Title")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Url")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TestId", "SortOrder", "Id");
+
+                    b.ToTable("TestVideos");
+                });
+
             modelBuilder.Entity("LyraSAT.Models.User", b =>
                 {
                     b.Property<int>("Id")
@@ -436,6 +491,9 @@ namespace LyraSAT.Migrations
                     b.Property<string>("FullName")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
 
                     b.Property<DateTime?>("LastLoginDate")
                         .HasColumnType("timestamp with time zone");
@@ -521,6 +579,17 @@ namespace LyraSAT.Migrations
                     b.Navigation("Teacher");
                 });
 
+            modelBuilder.Entity("LyraSAT.Models.ClassTeacher", b =>
+                {
+                    b.HasOne("LyraSAT.Models.User", "Teacher")
+                        .WithMany()
+                        .HasForeignKey("TeacherId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Teacher");
+                });
+
             modelBuilder.Entity("LyraSAT.Models.CommentReaction", b =>
                 {
                     b.HasOne("LyraSAT.Models.QuestionComment", "Comment")
@@ -530,7 +599,7 @@ namespace LyraSAT.Migrations
                         .IsRequired();
 
                     b.HasOne("LyraSAT.Models.User", "User")
-                        .WithMany("StudentClasses")
+                        .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
@@ -604,7 +673,7 @@ namespace LyraSAT.Migrations
                         .IsRequired();
 
                     b.HasOne("LyraSAT.Models.User", "User")
-                        .WithMany()
+                        .WithMany("StudentClasses")
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
@@ -652,6 +721,17 @@ namespace LyraSAT.Migrations
                     b.Navigation("Submission");
                 });
 
+            modelBuilder.Entity("LyraSAT.Models.TestVideo", b =>
+                {
+                    b.HasOne("LyraSAT.Models.Test", "Test")
+                        .WithMany("Videos")
+                        .HasForeignKey("TestId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Test");
+                });
+
             modelBuilder.Entity("LyraSAT.Models.Class", b =>
                 {
                     b.Navigation("StudentClasses");
@@ -674,10 +754,14 @@ namespace LyraSAT.Migrations
                     b.Navigation("Questions");
 
                     b.Navigation("Submissions");
+
+                    b.Navigation("Videos");
                 });
 
             modelBuilder.Entity("LyraSAT.Models.User", b =>
                 {
+                    b.Navigation("StudentClasses");
+
                     b.Navigation("Submissions");
                 });
 #pragma warning restore 612, 618

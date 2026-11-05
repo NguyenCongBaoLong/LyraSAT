@@ -21,9 +21,19 @@ namespace LyraSAT.Data
         public DbSet<CommentReaction> CommentReactions { get; set; }
         public DbSet<Notification> Notifications { get; set; }
         public DbSet<ClassTeacher> ClassTeachers { get; set; }
+        public DbSet<TestVideo> TestVideos { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
+            modelBuilder.Entity<TestVideo>()
+                .HasIndex(v => new { v.TestId, v.SortOrder, v.Id });
+
+            modelBuilder.Entity<TestVideo>()
+                .HasOne(v => v.Test)
+                .WithMany(t => t.Videos)
+                .HasForeignKey(v => v.TestId)
+                .OnDelete(DeleteBehavior.Cascade);
+
             modelBuilder.Entity<Class>()
                 .HasIndex(c => c.ClassCode);
 
