@@ -176,6 +176,7 @@ namespace LyraSAT.Controllers
             var submission = await _context.Submissions
                 .Include(s => s.Test)
                 .ThenInclude(t => t.Questions)
+                .ThenInclude(q => q.Assets)
                 .Include(s => s.SubmissionDetails)
                 .FirstOrDefaultAsync(s => s.Id == submissionId);
 
@@ -217,6 +218,19 @@ namespace LyraSAT.Controllers
                         selectedAnswer = detail?.SelectedAnswer ?? "", // Đáp án học sinh chọn
                         correctAnswer = q.CorrectAnswer ?? "",          // Đáp án đúng thực tế
                         videoExplanationUrl = q.VideoExplanationUrl ?? "",
+                        assets = q.Assets
+                            .OrderBy(asset => asset.SortOrder)
+                            .Select(asset => new
+                            {
+                                id = asset.Id,
+                                assetType = asset.AssetType,
+                                fileUrl = asset.FileUrl,
+                                fileName = asset.FileName,
+                                mimeType = asset.MimeType,
+                                altText = asset.AltText ?? "",
+                                placement = asset.Placement,
+                                sortOrder = asset.SortOrder
+                            }).ToList(),
                         isCorrect = detail?.IsCorrect ?? false
                     };
                 }).ToList()

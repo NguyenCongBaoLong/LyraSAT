@@ -10,6 +10,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
 namespace LyraSAT.Controllers
@@ -99,6 +100,7 @@ namespace LyraSAT.Controllers
         {
             var test = await _context.Tests
                 .Include(t => t.Questions)
+                .ThenInclude(q => q.Assets)
                 .FirstOrDefaultAsync(t => t.Id == id);
 
             if (test == null) return NotFound(new { message = "Không tìm thấy bài test!" });
@@ -113,7 +115,18 @@ namespace LyraSAT.Controllers
                 q.OptionA,
                 q.OptionB,
                 q.OptionC,
-                q.OptionD
+                q.OptionD,
+                Assets = q.Assets.OrderBy(asset => asset.SortOrder).Select(asset => new
+                {
+                    asset.Id,
+                    asset.AssetType,
+                    asset.FileUrl,
+                    asset.FileName,
+                    asset.MimeType,
+                    asset.AltText,
+                    asset.Placement,
+                    asset.SortOrder
+                })
             });
 
             return Ok(new { test.Title, test.Duration, Questions = secureQuestions });
@@ -226,6 +239,7 @@ namespace LyraSAT.Controllers
 
                 _context.Questions.AddRange(questions);
                 await _context.SaveChangesAsync();
+                await ExtractAndPersistQuestionAssetsAsync(questions, newTest.Id);
 
                 // Nếu giáo viên dán link video ngay khi giao đề, đồng thời tạo luôn
                 // một dòng trong TestVideos để danh sách nhiều video thấy được ngay.
@@ -441,7 +455,22 @@ namespace LyraSAT.Controllers
                         optionA = q.OptionA ?? "",
                         optionB = q.OptionB ?? "",
                         optionC = q.OptionC ?? "",
-                        optionD = q.OptionD ?? ""
+                        optionD = q.OptionD ?? "",
+                        assets = q.Assets
+                            .OrderBy(asset => asset.Placement)
+                            .ThenBy(asset => asset.SortOrder)
+                            .ThenBy(asset => asset.Id)
+                            .Select(asset => new
+                            {
+                                id = asset.Id,
+                                assetType = asset.AssetType,
+                                fileUrl = asset.FileUrl,
+                                fileName = asset.FileName,
+                                mimeType = asset.MimeType,
+                                altText = asset.AltText ?? "",
+                                placement = asset.Placement,
+                                sortOrder = asset.SortOrder
+                            }).ToList()
                     }).ToList()
                 })
                 .FirstOrDefaultAsync();
@@ -553,6 +582,70 @@ namespace LyraSAT.Controllers
             }
         }
 
+        private async Task ExtractAndPersistQuestionAssetsAsync(IEnumerable<Question> questions, int testId)
+        {
+            var dataUriPattern = new Regex(
+                "data:(?<mime>image\\/(?:png|jpeg|jpg|gif|webp));base64,(?<data>[A-Za-z0-9+/=]+)",
+                RegexOptions.Compiled | RegexOptions.IgnoreCase);
+            var webRoot = _env.WebRootPath ?? Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+            var relativeDirectory = $"uploads/tests/{testId}";
+            var absoluteDirectory = Path.Combine(webRoot, "uploads", "tests", testId.ToString());
+            var assetIndex = 0;
+
+            foreach (var question in questions)
+            {
+                var fields = new[]
+                {
+                    (Name: "PassageText", Value: question.PassageText, Placement: "Passage"),
+                    (Name: "QuestionText", Value: question.QuestionText, Placement: "Question"),
+                    (Name: "OptionA", Value: question.OptionA, Placement: "OptionA"),
+                    (Name: "OptionB", Value: question.OptionB, Placement: "OptionB"),
+                    (Name: "OptionC", Value: question.OptionC, Placement: "OptionC"),
+                    (Name: "OptionD", Value: question.OptionD, Placement: "OptionD")
+                };
+
+                foreach (var field in fields)
+                {
+                    if (string.IsNullOrEmpty(field.Value)) continue;
+
+                    var fieldAssetIndex = 0;
+                    var replaced = dataUriPattern.Replace(field.Value, match =>
+                    {
+                        var mimeType = match.Groups["mime"].Value.ToLowerInvariant();
+                        var extension = mimeType is "image/jpeg" or "image/jpg" ? "jpg" : mimeType[6..];
+                        var fileName = $"question-{question.Id}-{field.Placement.ToLowerInvariant()}-{fieldAssetIndex++}.{extension}";
+                        Directory.CreateDirectory(absoluteDirectory);
+                        System.IO.File.WriteAllBytes(
+                            Path.Combine(absoluteDirectory, fileName),
+                            Convert.FromBase64String(match.Groups["data"].Value));
+
+                        _context.QuestionAssets.Add(new QuestionAsset
+                        {
+                            QuestionId = question.Id,
+                            AssetType = "Image",
+                            FileUrl = $"/{relativeDirectory}/{fileName}",
+                            FileName = fileName,
+                            MimeType = mimeType,
+                            AltText = "Hình minh họa",
+                            Placement = field.Placement,
+                            SortOrder = assetIndex++
+                        });
+
+                        return $"/{relativeDirectory}/{fileName}";
+                    });
+
+                    if (field.Name == "PassageText") question.PassageText = replaced;
+                    else if (field.Name == "QuestionText") question.QuestionText = replaced;
+                    else if (field.Name == "OptionA") question.OptionA = replaced;
+                    else if (field.Name == "OptionB") question.OptionB = replaced;
+                    else if (field.Name == "OptionC") question.OptionC = replaced;
+                    else if (field.Name == "OptionD") question.OptionD = replaced;
+                }
+            }
+
+            await _context.SaveChangesAsync();
+        }
+
         // Xóa bài test (Dành cho Giáo viên & Quản trị viên)
         [HttpDelete("{id}")]
         public async Task<IActionResult> DeleteTest(int id, [FromQuery] int? userId = null)
@@ -606,9 +699,17 @@ namespace LyraSAT.Controllers
                 }
 
                 var questions = await _context.Questions.Where(q => q.TestId == id).ToListAsync();
+                var assets = await _context.QuestionAssets
+                    .Where(asset => questionIds.Contains(asset.QuestionId))
+                    .ToListAsync();
+                var assetRoot = Path.Combine(_env.WebRootPath ?? Path.Combine(Directory.GetCurrentDirectory(), "wwwroot"), "uploads", "tests", id.ToString());
                 if (questions.Any())
                 {
                     _context.Questions.RemoveRange(questions);
+                }
+                if (assets.Any())
+                {
+                    _context.QuestionAssets.RemoveRange(assets);
                 }
 
                 // Dọn thông báo trỏ tới đề/câu hỏi sắp xóa (tránh chuông còn thông báo "mồ côi")
@@ -622,6 +723,10 @@ namespace LyraSAT.Controllers
 
                 _context.Tests.Remove(test);
                 await _context.SaveChangesAsync();
+                if (Directory.Exists(assetRoot))
+                {
+                    Directory.Delete(assetRoot, recursive: true);
+                }
 
                 return Ok(new { message = "Đã xóa bài test thành công!" });
             }

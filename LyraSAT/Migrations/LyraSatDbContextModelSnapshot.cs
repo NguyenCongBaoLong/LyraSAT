@@ -222,6 +222,53 @@ namespace LyraSAT.Migrations
                     b.ToTable("Questions");
                 });
 
+            modelBuilder.Entity("LyraSAT.Models.QuestionAsset", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("AltText")
+                        .HasColumnType("text");
+
+                    b.Property<string>("AssetType")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("FileUrl")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("MimeType")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Placement")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("QuestionId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("QuestionId", "Placement", "SortOrder", "Id");
+
+                    b.ToTable("QuestionAssets");
+                });
+
             modelBuilder.Entity("LyraSAT.Models.QuestionComment", b =>
                 {
                     b.Property<int>("Id")
@@ -638,6 +685,17 @@ namespace LyraSAT.Migrations
                     b.Navigation("Test");
                 });
 
+            modelBuilder.Entity("LyraSAT.Models.QuestionAsset", b =>
+                {
+                    b.HasOne("LyraSAT.Models.Question", "Question")
+                        .WithMany("Assets")
+                        .HasForeignKey("QuestionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Question");
+                });
+
             modelBuilder.Entity("LyraSAT.Models.QuestionComment", b =>
                 {
                     b.HasOne("LyraSAT.Models.QuestionComment", "ParentComment")
@@ -735,6 +793,11 @@ namespace LyraSAT.Migrations
             modelBuilder.Entity("LyraSAT.Models.Class", b =>
                 {
                     b.Navigation("StudentClasses");
+                });
+
+            modelBuilder.Entity("LyraSAT.Models.Question", b =>
+                {
+                    b.Navigation("Assets");
                 });
 
             modelBuilder.Entity("LyraSAT.Models.QuestionComment", b =>

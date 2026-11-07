@@ -12,6 +12,7 @@ namespace LyraSAT.Data
         public DbSet<User> Users { get; set; }
         public DbSet<Test> Tests { get; set; }
         public DbSet<Question> Questions { get; set; }
+        public DbSet<QuestionAsset> QuestionAssets { get; set; }
         public DbSet<Submission> Submissions { get; set; }
         public DbSet<SubmissionDetail> SubmissionDetails { get; set; }
         public DbSet<Vocabulary> Vocabularies { get; set; }
@@ -32,6 +33,15 @@ namespace LyraSAT.Data
                 .HasOne(v => v.Test)
                 .WithMany(t => t.Videos)
                 .HasForeignKey(v => v.TestId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<QuestionAsset>()
+                .HasIndex(asset => new { asset.QuestionId, asset.Placement, asset.SortOrder, asset.Id });
+
+            modelBuilder.Entity<QuestionAsset>()
+                .HasOne(asset => asset.Question)
+                .WithMany(question => question.Assets)
+                .HasForeignKey(asset => asset.QuestionId)
                 .OnDelete(DeleteBehavior.Cascade);
 
             modelBuilder.Entity<Class>()

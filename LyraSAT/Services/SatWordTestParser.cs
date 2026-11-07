@@ -1,5 +1,9 @@
 using LyraSAT.Models;
 using NPOI.XWPF.UserModel;
+using System.Net;
+using System.Text;
+using System.Text.RegularExpressions;
+using System.Collections;
 
 namespace LyraSAT.Services
 {
@@ -22,16 +26,18 @@ namespace LyraSAT.Services
                 else if (element is XWPFTable table)
                 {
                     // Chuyển đổi bảng Word thành chuỗi HTML chuẩn
-                    var htmlTable = new System.Text.StringBuilder();
-                    htmlTable.Append("<div class='passage-table-wrapper'><table class='passage-table'><tbody>");
+                    var htmlTable = new StringBuilder();
+                    htmlTable.Append("<div class='rich-table-wrapper'><table class='rich-table'><tbody>");
 
                     foreach (var row in table.Rows)
                     {
                         htmlTable.Append("<tr>");
                         foreach (var cell in row.GetTableCells())
                         {
-                            string cellText = System.Net.WebUtility.HtmlEncode(cell.GetText());
-                            htmlTable.Append($"<td>{cellText}</td>");
+                            var cellHtml = string.Join("<br>", cell.Paragraphs
+                                .Select(RenderParagraph)
+                                .Where(value => !string.IsNullOrWhiteSpace(value)));
+                            htmlTable.Append($"<td>{cellHtml}</td>");
                         }
                         htmlTable.Append("</tr>");
                     }
@@ -55,7 +61,8 @@ namespace LyraSAT.Services
             foreach (var rawLine in lines)
             {
                 string line = rawLine.Trim();
-                if (string.IsNullOrEmpty(line))
+                string plainLine = StripHtml(line).Trim();
+                if (string.IsNullOrEmpty(plainLine))
                 {
                     if (currentQ != null)
                     {
@@ -65,7 +72,7 @@ namespace LyraSAT.Services
                     continue;
                 }
 
-                if (line.StartsWith("Text:", StringComparison.OrdinalIgnoreCase))
+                if (plainLine.StartsWith("Text:", StringComparison.OrdinalIgnoreCase))
                 {
                     if (currentQ != null)
                     {
@@ -84,13 +91,13 @@ namespace LyraSAT.Services
                     questionLines.Clear();
                     isReadingPassage = true;
 
-                    string contentAfterColon = line.Substring(5).TrimStart();
+                    string contentAfterColon = RemovePrefix(line, "Text:");
                     if (!string.IsNullOrEmpty(contentAfterColon))
                     {
                         passageLines.Add(contentAfterColon);
                     }
                 }
-                else if (line.StartsWith("Question:", StringComparison.OrdinalIgnoreCase) || line.StartsWith("Câu:", StringComparison.OrdinalIgnoreCase))
+                else if (plainLine.StartsWith("Question:", StringComparison.OrdinalIgnoreCase) || plainLine.StartsWith("Câu:", StringComparison.OrdinalIgnoreCase))
                 {
                     if (currentQ == null)
                     {
@@ -99,7 +106,7 @@ namespace LyraSAT.Services
 
                     isReadingPassage = false;
 
-                    string contentAfterColon = line.Substring(line.IndexOf(':') + 1).TrimStart();
+                    string contentAfterColon = RemovePrefix(line, plainLine[..(plainLine.IndexOf(':') + 1)]);
                     if (!string.IsNullOrEmpty(contentAfterColon))
                     {
                         questionLines.Add(contentAfterColon);
@@ -107,34 +114,34 @@ namespace LyraSAT.Services
                 }
                 else if (currentQ != null)
                 {
-                    if (line.Contains("A:") && line.Contains("B:") && line.Contains("C:") && line.Contains("D:"))
+                    if (plainLine.Contains("A:") && plainLine.Contains("B:") && plainLine.Contains("C:") && plainLine.Contains("D:"))
                     {
                         ExtractAllOptionsInline(currentQ, line);
                     }
-                    else if (System.Text.RegularExpressions.Regex.IsMatch(line, @"^[A-D][:\.]"))
+                    else if (Regex.IsMatch(plainLine, @"^[A-D][:\.]"))
                     {
-                        char optKey = char.ToUpper(line[0]);
-                        string optVal = line.Substring(2).TrimStart();
+                        char optKey = char.ToUpper(plainLine[0]);
+                        string optVal = RemovePrefix(line, plainLine[..2]);
 
                         if (optKey == 'A') currentQ.OptionA = optVal;
                         else if (optKey == 'B') currentQ.OptionB = optVal;
                         else if (optKey == 'C') currentQ.OptionC = optVal;
                         else if (optKey == 'D') currentQ.OptionD = optVal;
                     }
-                    else if (line.StartsWith("ANSWER", StringComparison.OrdinalIgnoreCase) || line.StartsWith("Đáp án", StringComparison.OrdinalIgnoreCase))
+                    else if (plainLine.StartsWith("ANSWER", StringComparison.OrdinalIgnoreCase) || plainLine.StartsWith("Đáp án", StringComparison.OrdinalIgnoreCase))
                     {
-                        var parts = line.Split(new[] { ':', ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                        var parts = plainLine.Split(new[] { ':', ' ' }, StringSplitOptions.RemoveEmptyEntries);
                         if (parts.Length > 1)
                         {
                             currentQ.CorrectAnswer = parts.Last().Trim().ToUpper();
                         }
                     }
-                    else if (line.StartsWith("VIDEO", StringComparison.OrdinalIgnoreCase) || line.StartsWith("Link video", StringComparison.OrdinalIgnoreCase))
+                    else if (plainLine.StartsWith("VIDEO", StringComparison.OrdinalIgnoreCase) || plainLine.StartsWith("Link video", StringComparison.OrdinalIgnoreCase))
                     {
-                        var colonIdx = line.IndexOf(':');
-                        if (colonIdx >= 0 && colonIdx < line.Length - 1)
+                        var colonIdx = plainLine.IndexOf(':');
+                        if (colonIdx >= 0 && colonIdx < plainLine.Length - 1)
                         {
-                            currentQ.VideoExplanationUrl = line.Substring(colonIdx + 1).Trim();
+                            currentQ.VideoExplanationUrl = plainLine[(colonIdx + 1)..].Trim();
                         }
                     }
                     else
@@ -171,46 +178,120 @@ namespace LyraSAT.Services
 
         private static void AddParagraphLines(List<string> lines, XWPFParagraph paragraph)
         {
-            var paragraphText = paragraph.ParagraphText;
-            if (paragraphText == null) return;
+            var html = RenderParagraph(paragraph);
+            if (string.IsNullOrWhiteSpace(html)) return;
 
-            var normalizedText = paragraphText.Replace("\r\n", "\n").Replace('\r', '\n');
             var prefix = string.IsNullOrEmpty(paragraph.GetNumID()) ? string.Empty : "• ";
-            var paragraphLines = normalizedText.Split('\n', StringSplitOptions.None);
-
-            for (var index = 0; index < paragraphLines.Length; index++)
-            {
-                if (index == 0 && !string.IsNullOrWhiteSpace(paragraphLines[index]))
-                {
-                    lines.Add(prefix + paragraphLines[index]);
-                }
-                else
-                {
-                    lines.Add(paragraphLines[index]);
-                }
-            }
+            lines.Add(prefix + html);
         }
 
         private static string JoinPreservingLineBreaks(List<string> lines)
         {
-            return string.Join("\n", lines).Trim('\r', '\n');
+            return string.Join("<br>", lines.Where(line => !string.IsNullOrWhiteSpace(line))).Trim();
         }
 
         private static void ExtractAllOptionsInline(Question q, string text)
         {
             try
             {
-                var parts = System.Text.RegularExpressions.Regex.Split(text, @"(?=[A-D][:\.])");
+                var parts = Regex.Split(text, @"(?=[A-D][:\.])");
                 foreach (var p in parts)
                 {
                     string trimmed = p.TrimStart();
-                    if (trimmed.StartsWith("A:") || trimmed.StartsWith("A.")) q.OptionA = trimmed.Substring(2).Trim();
-                    else if (trimmed.StartsWith("B:") || trimmed.StartsWith("B.")) q.OptionB = trimmed.Substring(2).Trim();
-                    else if (trimmed.StartsWith("C:") || trimmed.StartsWith("C.")) q.OptionC = trimmed.Substring(2).Trim();
-                    else if (trimmed.StartsWith("D:") || trimmed.StartsWith("D.")) q.OptionD = trimmed.Substring(2).Trim();
+                    string plain = StripHtml(trimmed);
+                    if (plain.StartsWith("A:") || plain.StartsWith("A.")) q.OptionA = RemovePrefix(trimmed, plain[..2]);
+                    else if (plain.StartsWith("B:") || plain.StartsWith("B.")) q.OptionB = RemovePrefix(trimmed, plain[..2]);
+                    else if (plain.StartsWith("C:") || plain.StartsWith("C.")) q.OptionC = RemovePrefix(trimmed, plain[..2]);
+                    else if (plain.StartsWith("D:") || plain.StartsWith("D.")) q.OptionD = RemovePrefix(trimmed, plain[..2]);
                 }
             }
-            catch { }
+            catch (ArgumentException) { }
+        }
+
+        private static string RenderParagraph(XWPFParagraph paragraph)
+        {
+            var content = new StringBuilder();
+            foreach (var run in paragraph.Runs)
+            {
+                AppendEmbeddedPictures(content, run);
+
+                var text = run.ToString();
+                if (string.IsNullOrEmpty(text)) continue;
+
+                var encoded = WebUtility.HtmlEncode(text).Replace("\r\n", "<br>").Replace("\n", "<br>");
+                if (run.IsBold) encoded = $"<strong>{encoded}</strong>";
+                if (run.IsItalic) encoded = $"<em>{encoded}</em>";
+                if (HasUnderline(run)) encoded = $"<u>{encoded}</u>";
+                content.Append(encoded);
+            }
+
+            return content.ToString();
+        }
+
+        private static void AppendEmbeddedPictures(StringBuilder content, XWPFRun run)
+        {
+            var pictures = run.GetType()
+                .GetMethod("GetEmbeddedPictures")?
+                .Invoke(run, null) as IEnumerable;
+            if (pictures == null) return;
+
+            foreach (var picture in pictures)
+            {
+                if (picture == null) continue;
+
+                var pictureData = picture.GetType()
+                    .GetMethod("GetPictureData")?
+                    .Invoke(picture, null);
+                var bytes = pictureData?.GetType()
+                    .GetMethod("GetData")?
+                    .Invoke(pictureData, null) as byte[];
+                if (bytes == null || bytes.Length == 0) continue;
+
+                var fileName = pictureData?.GetType()
+                    .GetProperty("FileName")?
+                    .GetValue(pictureData) as string;
+                var mimeType = GetImageMimeType(fileName);
+                var dataUri = $"data:{mimeType};base64,{Convert.ToBase64String(bytes)}";
+                content.Append($"<img src=\"{dataUri}\" alt=\"Hình minh họa\" />");
+            }
+        }
+
+        private static string GetImageMimeType(string? fileName)
+        {
+            return Path.GetExtension(fileName ?? string.Empty).ToLowerInvariant() switch
+            {
+                ".jpg" or ".jpeg" => "image/jpeg",
+                ".gif" => "image/gif",
+                ".svg" => "image/svg+xml",
+                ".webp" => "image/webp",
+                _ => "image/png"
+            };
+        }
+
+        private static bool HasUnderline(XWPFRun run)
+        {
+            var runProperties = run.GetCTR()
+                .GetType()
+                .GetProperty("rPr")?
+                .GetValue(run.GetCTR());
+
+            return runProperties?
+                .GetType()
+                .GetProperty("u")?
+                .GetValue(runProperties) != null;
+        }
+
+        private static string StripHtml(string value)
+        {
+            var withLineBreaks = Regex.Replace(value, "<br\\s*/?>", "\n", RegexOptions.IgnoreCase);
+            return WebUtility.HtmlDecode(Regex.Replace(withLineBreaks, "<[^>]+>", string.Empty));
+        }
+
+        private static string RemovePrefix(string html, string prefix)
+        {
+            if (string.IsNullOrEmpty(prefix)) return html.Trim();
+            var index = html.IndexOf(':');
+            return index >= 0 ? html[(index + 1)..].TrimStart() : html.Trim();
         }
     }
 }

@@ -22,5 +22,6 @@ namespace LyraSAT.Models
         public string? Explanation { get; set; }        
         public string? Section { get; set; }            
         public int? ModuleNumber { get; set; }
+        public ICollection<QuestionAsset> Assets { get; set; } = new List<QuestionAsset>();
     }
 }
