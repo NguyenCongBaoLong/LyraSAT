@@ -3,7 +3,6 @@ using NPOI.XWPF.UserModel;
 using System.Net;
 using System.Text;
 using System.Text.RegularExpressions;
-using System.Collections;
 
 namespace LyraSAT.Services
 {
@@ -230,26 +229,13 @@ namespace LyraSAT.Services
 
         private static void AppendEmbeddedPictures(StringBuilder content, XWPFRun run)
         {
-            var pictures = run.GetType()
-                .GetMethod("GetEmbeddedPictures")?
-                .Invoke(run, null) as IEnumerable;
-            if (pictures == null) return;
-
-            foreach (var picture in pictures)
+            foreach (var picture in run.GetEmbeddedPictures())
             {
-                if (picture == null) continue;
-
-                var pictureData = picture.GetType()
-                    .GetMethod("GetPictureData")?
-                    .Invoke(picture, null);
-                var bytes = pictureData?.GetType()
-                    .GetMethod("GetData")?
-                    .Invoke(pictureData, null) as byte[];
+                var pictureData = picture.GetPictureData();
+                var bytes = pictureData?.Data;
                 if (bytes == null || bytes.Length == 0) continue;
 
-                var fileName = pictureData?.GetType()
-                    .GetProperty("FileName")?
-                    .GetValue(pictureData) as string;
+                var fileName = pictureData.FileName;
                 var mimeType = GetImageMimeType(fileName);
                 var dataUri = $"data:{mimeType};base64,{Convert.ToBase64String(bytes)}";
                 content.Append($"<img src=\"{dataUri}\" alt=\"Hình minh họa\" />");
