@@ -21,10 +21,14 @@ namespace LyraSAT.Services
             ILogger<SupabaseStorageService> logger)
         {
             _httpClient = httpClient;
-            _supabaseUrl = configuration["Supabase:Url"]?.TrimEnd('/')
-                ?? throw new InvalidOperationException("Supabase:Url is not configured.");
-            _serviceRoleKey = configuration["Supabase:ServiceRoleKey"]
-                ?? throw new InvalidOperationException("Supabase:ServiceRoleKey is not configured.");
+            _supabaseUrl = (
+                configuration["Supabase:Url"] ??
+                configuration["SUPABASE_URL"])?.TrimEnd('/')
+                ?? throw new InvalidOperationException("Supabase URL is not configured.");
+            _serviceRoleKey =
+                configuration["Supabase:ServiceRoleKey"] ??
+                configuration["SUPABASE_SERVICE_ROLE_KEY"]
+                ?? throw new InvalidOperationException("Supabase service role key is not configured.");
             _logger = logger;
         }
 
@@ -38,6 +42,7 @@ namespace LyraSAT.Services
                 HttpMethod.Post,
                 $"{_supabaseUrl}/storage/v1/object/{BucketName}/{objectPath}");
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _serviceRoleKey);
+            request.Headers.Add("apikey", _serviceRoleKey);
             request.Headers.Add("x-upsert", "true");
             request.Content = new ByteArrayContent(content);
             request.Content.Headers.ContentType = new MediaTypeHeaderValue(contentType);
