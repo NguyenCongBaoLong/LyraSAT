@@ -10,6 +10,7 @@ builder.Services.AddDbContext<LyraSatDbContext>(options =>
         npgsqlOptions => npgsqlOptions.CommandTimeout(300)));
 
 builder.Services.AddControllers();
+builder.Services.AddHttpClient<ISupabaseStorageService, SupabaseStorageService>();
 
 // Video chữa bài của giáo viên có thể vài chục MB, mặc định multipart chỉ 128MB
 // và bị Kestrel chặn sớm; nâng lên để endpoint upload video nhận được file.

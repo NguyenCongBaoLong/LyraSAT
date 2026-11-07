@@ -11,6 +11,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
+using System.Text;
 using System.Threading.Tasks;
 
 namespace LyraSAT.Controllers
@@ -23,17 +24,20 @@ namespace LyraSAT.Controllers
         private readonly INotificationService _notificationService;
         private readonly ILogger<TestsController> _logger;
         private readonly IWebHostEnvironment _env;
+        private readonly ISupabaseStorageService _storage;
 
         public TestsController(
             LyraSatDbContext context,
             INotificationService notificationService,
             ILogger<TestsController> logger,
-            IWebHostEnvironment env)
+            IWebHostEnvironment env,
+            ISupabaseStorageService storage)
         {
             _context = context;
             _notificationService = notificationService;
             _logger = logger;
             _env = env;
+            _storage = storage;
         }
 
         // Lấy danh sách bài test theo mã lớp (Mục Mission)
@@ -587,9 +591,6 @@ namespace LyraSAT.Controllers
             var dataUriPattern = new Regex(
                 "data:(?<mime>image\\/(?:png|jpeg|jpg|gif|webp));base64,(?<data>[A-Za-z0-9+/=]+)",
                 RegexOptions.Compiled | RegexOptions.IgnoreCase);
-            var webRoot = _env.WebRootPath ?? Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
-            var relativeDirectory = $"uploads/tests/{testId}";
-            var absoluteDirectory = Path.Combine(webRoot, "uploads", "tests", testId.ToString());
             var assetIndex = 0;
 
             foreach (var question in questions)
@@ -609,30 +610,38 @@ namespace LyraSAT.Controllers
                     if (string.IsNullOrEmpty(field.Value)) continue;
 
                     var fieldAssetIndex = 0;
-                    var replaced = dataUriPattern.Replace(field.Value, match =>
+                    var matches = dataUriPattern.Matches(field.Value);
+                    var replacedBuilder = new StringBuilder();
+                    var previousIndex = 0;
+
+                    foreach (Match match in matches)
                     {
                         var mimeType = match.Groups["mime"].Value.ToLowerInvariant();
                         var extension = mimeType is "image/jpeg" or "image/jpg" ? "jpg" : mimeType[6..];
                         var fileName = $"question-{question.Id}-{field.Placement.ToLowerInvariant()}-{fieldAssetIndex++}.{extension}";
-                        Directory.CreateDirectory(absoluteDirectory);
-                        System.IO.File.WriteAllBytes(
-                            Path.Combine(absoluteDirectory, fileName),
-                            Convert.FromBase64String(match.Groups["data"].Value));
+                        var bytes = Convert.FromBase64String(match.Groups["data"].Value);
+                        var objectPath = $"tests/{testId}/{fileName}";
+                        var fileUrl = await _storage.UploadAsync(bytes, objectPath, mimeType);
+
+                        replacedBuilder.Append(field.Value, previousIndex, match.Index - previousIndex);
+                        replacedBuilder.Append(fileUrl);
+                        previousIndex = match.Index + match.Length;
 
                         _context.QuestionAssets.Add(new QuestionAsset
                         {
                             QuestionId = question.Id,
                             AssetType = "Image",
-                            FileUrl = $"/{relativeDirectory}/{fileName}",
+                            FileUrl = fileUrl,
                             FileName = fileName,
                             MimeType = mimeType,
                             AltText = "Hình minh họa",
                             Placement = field.Placement,
                             SortOrder = assetIndex++
                         });
+                    }
 
-                        return $"/{relativeDirectory}/{fileName}";
-                    });
+                    replacedBuilder.Append(field.Value, previousIndex, field.Value.Length - previousIndex);
+                    var replaced = replacedBuilder.ToString();
 
                     if (field.Name == "PassageText") question.PassageText = replaced;
                     else if (field.Name == "QuestionText") question.QuestionText = replaced;
