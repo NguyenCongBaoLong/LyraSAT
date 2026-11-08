@@ -7,7 +7,9 @@ var builder = WebApplication.CreateBuilder(args);
 // Add services to the container.
 builder.Services.AddDbContext<LyraSatDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection"),
-        npgsqlOptions => npgsqlOptions.CommandTimeout(300)));
+        npgsqlOptions => npgsqlOptions
+            .CommandTimeout(30)
+            .EnableRetryOnFailure(3, TimeSpan.FromSeconds(5), null)));
 
 builder.Services.AddControllers();
 builder.Services.AddHttpClient<ISupabaseStorageService, SupabaseStorageService>();
