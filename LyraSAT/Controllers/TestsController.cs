@@ -241,6 +241,24 @@ namespace LyraSAT.Controllers
                     return BadRequest(new { message = "File Word không đúng cấu trúc định dạng câu hỏi SAT (Thiếu các từ khóa Text:, Question:, hoặc các đáp án A, B, C, D)!" });
                 }
 
+                // KIỂM TRA: Không lưu đề nếu dữ liệu đáp án bị sai (thiếu đáp án, trùng nhau,
+                // còn dính nhãn chữ cái, hoặc không đọc được đáp án đúng). Thà báo để giáo viên
+                // sửa file còn hơn để học sinh làm đề có đáp án sai.
+                var optionIssues = SatWordTestParser.Validate(questions);
+                if (optionIssues.Count > 0)
+                {
+                    _context.Tests.Remove(newTest);
+                    await _context.SaveChangesAsync();
+
+                    var preview = string.Join(" ", optionIssues.Take(5));
+                    var more = optionIssues.Count > 5 ? $" (còn {optionIssues.Count - 5} lỗi khác)" : "";
+                    return BadRequest(new
+                    {
+                        message = $"File Word có {optionIssues.Count} lỗi ở phần đáp án nên chưa được lưu: {preview}{more}",
+                        issues = optionIssues
+                    });
+                }
+
                 _context.Questions.AddRange(questions);
                 await _context.SaveChangesAsync();
                 await ExtractAndPersistQuestionAssetsAsync(questions, newTest.Id);
