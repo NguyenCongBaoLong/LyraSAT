@@ -49,8 +49,10 @@ namespace LyraSAT.Controllers
             [FromQuery] int page = 1,
             [FromQuery] int pageSize = 8)
         {
-            if ((status?.Equals("expired", StringComparison.OrdinalIgnoreCase) == true ||
-                 status?.Equals("completed", StringComparison.OrdinalIgnoreCase) == true) &&
+            var statusKey = status?.ToLowerInvariant();
+
+            // Hai mục này bắt buộc phải biết học sinh là ai mới lọc được.
+            if ((statusKey == "expired" || statusKey == "completed") &&
                 (!studentId.HasValue || studentId.Value <= 0))
             {
                 return BadRequest(new { message = "Mã học sinh không hợp lệ." });
@@ -58,41 +60,40 @@ namespace LyraSAT.Controllers
 
             var now = DateTime.UtcNow;
             var normalizedClassCode = ClassCodeHelper.Normalize(classCode).ToLower();
+            int sid = studentId ?? 0;
 
             var tests = _context.Tests
                 .AsNoTracking()
                 .Where(t => t.ClassCode != null && t.ClassCode.ToLower() == normalizedClassCode);
 
-            tests = status?.ToLowerInvariant() switch
+            tests = statusKey switch
             {
                 "urgent" => tests.Where(t => t.Deadline > now && t.Deadline <= now.AddHours(24)),
                 "expired" => tests.Where(t => t.Deadline <= now),
                 "active" => tests.Where(t => t.Deadline == null || t.Deadline > now.AddHours(24)),
-                "completed" => tests.Where(t => t.MaxAttempts.HasValue &&
-                    _context.Submissions.Count(s =>
-                        s.TestId == t.Id &&
-                        s.StudentId == studentId!.Value &&
-                        s.Status == "Completed") >= t.MaxAttempts.Value),
+                // Mục "Đã làm": mọi đề học sinh này đã nộp bài, kể cả đề không giới hạn lượt.
+                "completed" => tests.Where(t => _context.Submissions.Any(s =>
+                    s.TestId == t.Id &&
+                    s.StudentId == sid &&
+                    s.Status == "Completed")),
                 _ => tests
             };
 
-            if ((status?.Equals("urgent", StringComparison.OrdinalIgnoreCase) == true ||
-                 status?.Equals("active", StringComparison.OrdinalIgnoreCase) == true) &&
-                studentId.HasValue)
+            // Đề đã làm xong thì không còn nằm trong các mục cần làm nữa (chỉ còn ở mục
+            // "Đã làm") để học sinh không bấm vào làm lại. Ngoại lệ: đề giáo viên cho làm
+            // nhiều lần mà học sinh vẫn còn lượt thì vẫn để lại để làm tiếp.
+            if (studentId.HasValue && studentId.Value > 0 && statusKey != "completed")
             {
-                tests = tests.Where(t => !t.MaxAttempts.HasValue ||
-                    _context.Submissions.Count(s =>
+                tests = tests.Where(t =>
+                    !_context.Submissions.Any(s =>
                         s.TestId == t.Id &&
-                        s.StudentId == studentId.Value &&
-                        s.Status == "Completed") < t.MaxAttempts.Value);
-            }
-
-            if (status?.Equals("expired", StringComparison.OrdinalIgnoreCase) == true && studentId.HasValue)
-            {
-                tests = tests.Where(t => !_context.Submissions.Any(s =>
-                    s.TestId == t.Id &&
-                    s.StudentId == studentId.Value &&
-                    s.Status == "Completed"));
+                        s.StudentId == sid &&
+                        s.Status == "Completed")
+                    || (t.MaxAttempts.HasValue &&
+                        _context.Submissions.Count(s =>
+                            s.TestId == t.Id &&
+                            s.StudentId == sid &&
+                            s.Status == "Completed") < t.MaxAttempts.Value));
             }
 
             var orderedTests = studentId.HasValue

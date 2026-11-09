@@ -44,6 +44,19 @@ namespace LyraSAT.Controllers
             if (!studentExists)
                 return BadRequest(new { message = "Tài khoản học sinh không tồn tại. Vui lòng đăng nhập lại!" });
 
+            // Chặn nộp bài vượt số lần cho phép. Giao diện đã kiểm tra trước khi vào làm,
+            // nhưng phải chặn ở đây nữa vì học sinh có thể mở lại tab hoặc gọi thẳng API.
+            var submissionCount = await _context.Submissions
+                .CountAsync(s => s.TestId == model.TestId && s.StudentId == model.StudentId);
+
+            if (test.MaxAttempts.HasValue && submissionCount >= test.MaxAttempts.Value)
+            {
+                return BadRequest(new
+                {
+                    message = $"Bạn đã hết số lần làm bài cho phép ({submissionCount}/{test.MaxAttempts.Value})."
+                });
+            }
+
             int totalQuestions = test.Questions.Count;
             int correctCount = 0;
             var submissionDetails = new List<SubmissionDetail>();
