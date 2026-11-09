@@ -95,9 +95,17 @@ namespace LyraSAT.Controllers
                     s.Status == "Completed"));
             }
 
-            var result = await tests
-                .OrderByDescending(t => t.CreatedAt)
-                .ThenByDescending(t => t.Id)
+            var orderedTests = studentId.HasValue
+                ? tests
+                    .OrderBy(t => t.Deadline == null)
+                    .ThenBy(t => t.Deadline)
+                    .ThenByDescending(t => t.CreatedAt)
+                    .ThenByDescending(t => t.Id)
+                : tests
+                    .OrderByDescending(t => t.CreatedAt)
+                    .ThenByDescending(t => t.Id);
+
+            var result = await orderedTests
                 .Select(t => new
                 {
                     t.Id,
