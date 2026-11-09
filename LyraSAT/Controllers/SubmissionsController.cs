@@ -74,6 +74,7 @@ namespace LyraSAT.Controllers
             }
 
             double scorePercent = totalQuestions > 0 ? Math.Round((double)correctCount / totalQuestions * 100, 0) : 0;
+            int fruitCount = (int)Math.Ceiling(scorePercent / 10.0);
 
             var submission = new Submission
             {
@@ -118,9 +119,24 @@ namespace LyraSAT.Controllers
                 score = scorePercent,
                 correctCount = correctCount,
                 totalQuestions = totalQuestions,
+                fruitCount = fruitCount,
                 rewardPoints = correctCount,
                 submissionId = submission.Id
             });
+        }
+
+        [HttpGet("fruit-count/{studentId}")]
+        public async Task<IActionResult> GetStudentFruitCount(int studentId)
+        {
+            if (studentId <= 0)
+                return BadRequest(new { message = "Mã học sinh không hợp lệ." });
+
+            var totalFruitCount = await _context.Submissions
+                .AsNoTracking()
+                .Where(s => s.StudentId == studentId && s.Status == "Completed")
+                .SumAsync(s => (int?)Math.Ceiling(s.Score / 10.0)) ?? 0;
+
+            return Ok(new { fruitCount = totalFruitCount });
         }
 
         // Xem lịch sử làm bài và chi tiết đáp án
