@@ -46,29 +46,102 @@ namespace LyraSAT.Services
                 }
                 else if (element is XWPFTable table)
                 {
-                    // Chuyển đổi bảng Word thành chuỗi HTML chuẩn
-                    var htmlTable = new StringBuilder();
-                    htmlTable.Append("<div class='rich-table-wrapper'><table class='rich-table'><tbody>");
-
-                    foreach (var row in table.Rows)
+                    // Bảng 2x2 hoặc 1x4 mà mỗi ô là một đáp án (thường gặp ở đề Toán):
+                    // tách thành 4 dòng "A. ...", "B. ..." để phần đọc câu hỏi gắn đúng vào đáp án.
+                    var optionCells = ReadOptionGrid(table);
+                    if (optionCells != null)
                     {
-                        htmlTable.Append("<tr>");
-                        foreach (var cell in row.GetTableCells())
+                        // Mỗi đáp án thành 2 dòng: nhãn "A." rồi nội dung (bảng/chữ) để phần
+                        // đọc câu hỏi gắn đúng nội dung, kể cả bảng HTML.
+                        for (int i = 0; i < 4; i++)
                         {
-                            var cellHtml = string.Join("<br>", cell.Paragraphs
-                                .Select(RenderParagraph)
-                                .Where(value => !string.IsNullOrWhiteSpace(value)));
-                            htmlTable.Append($"<td>{cellHtml}</td>");
+                            extractedLines.Add($"{(char)('A' + i)}.");
+                            extractedLines.Add(optionCells[i]);
                         }
-                        htmlTable.Append("</tr>");
                     }
-
-                    htmlTable.Append("</tbody></table></div>");
-                    extractedLines.Add(htmlTable.ToString());
+                    else
+                    {
+                        extractedLines.Add(RenderTable(table));
+                    }
                 }
             }
 
             return extractedLines;
+        }
+
+        /// <summary>
+        /// Bảng Word thành HTML, giữ cả bảng lồng trong ô (đề Toán hay có bảng trong đáp án).
+        /// </summary>
+        private static string RenderTable(XWPFTable table)
+        {
+            var html = new StringBuilder("<div class='rich-table-wrapper'><table class='rich-table'><tbody>");
+
+            foreach (var row in table.Rows)
+            {
+                html.Append("<tr>");
+                foreach (var cell in row.GetTableCells())
+                {
+                    html.Append("<td>").Append(RenderCell(cell)).Append("</td>");
+                }
+                html.Append("</tr>");
+            }
+
+            html.Append("</tbody></table></div>");
+            return html.ToString();
+        }
+
+        private static string RenderCell(XWPFTableCell cell)
+        {
+            var parts = new List<string>();
+
+            foreach (var element in cell.BodyElements)
+            {
+                if (element is XWPFParagraph paragraph)
+                {
+                    var html = RenderParagraph(paragraph);
+                    if (!string.IsNullOrWhiteSpace(html)) parts.Add(html);
+                }
+                else if (element is XWPFTable nested)
+                {
+                    parts.Add(RenderTable(nested));
+                }
+            }
+
+            return string.Join("<br>", parts);
+        }
+
+        /// <summary>
+        /// Bảng 2x2 (hoặc 1x4) mà mỗi ô là một đáp án. Chỉ nhận khi mỗi ô có nhãn A/B/C/D
+        /// hoặc chứa bảng riêng, để không nhầm bảng số liệu 2x2 của đề bài thành đáp án.
+        /// </summary>
+        private static List<string>? ReadOptionGrid(XWPFTable table)
+        {
+            var cells = table.Rows.SelectMany(row => row.GetTableCells()).ToList();
+            if (cells.Count != 4) return null;
+
+            var contents = new List<string>();
+            bool hasLabelledCell = false;
+            bool hasNestedTable = false;
+
+            foreach (var cell in cells)
+            {
+                var html = RenderCell(cell).Trim();
+                if (html.Length == 0) return null;
+
+                var labelMatch = OptionLabel.Match(html);
+                if (labelMatch.Success)
+                {
+                    hasLabelledCell = true;
+                    html = NormalizeOptionText(html.Substring(labelMatch.Length), char.ToUpperInvariant(labelMatch.Groups[1].Value[0]));
+                }
+
+                if (html.Contains("<table", StringComparison.OrdinalIgnoreCase)) hasNestedTable = true;
+                contents.Add(html);
+            }
+
+            if (!hasLabelledCell && !hasNestedTable) return null;
+
+            return contents;
         }
 
         public static List<Question> Parse(List<string> lines, int testId)
@@ -78,6 +151,7 @@ namespace LyraSAT.Services
             var passageLines = new List<string>();
             var questionLines = new List<string>();
             bool isReadingPassage = true;
+            char? pendingOption = null;
 
             foreach (var rawLine in lines)
             {
@@ -85,7 +159,7 @@ namespace LyraSAT.Services
                 string plainLine = StripHtml(line).Trim();
                 if (string.IsNullOrEmpty(plainLine))
                 {
-                    if (currentQ != null)
+                    if (currentQ != null && pendingOption == null)
                     {
                         if (isReadingPassage) passageLines.Add(rawLine);
                         else questionLines.Add(rawLine);
@@ -102,6 +176,7 @@ namespace LyraSAT.Services
                     FinalizeQuestion(questions, currentQ, passageLines, questionLines);
                     currentQ = new Question { TestId = testId };
                     isReadingPassage = true;
+                    pendingOption = null;
 
                     string contentAfterColon = RemovePrefix(line, "Text:");
                     if (!string.IsNullOrEmpty(contentAfterColon))
@@ -128,6 +203,7 @@ namespace LyraSAT.Services
                     }
 
                     isReadingPassage = false;
+                    pendingOption = null;
 
                     if (!string.IsNullOrEmpty(questionHeadingRest))
                     {
@@ -138,6 +214,7 @@ namespace LyraSAT.Services
                 {
                     if (IsAnswerLine(probe))
                     {
+                        pendingOption = null;
                         string? answer = ExtractAnswerLetter(probe);
                         bool hasOptions = !string.IsNullOrWhiteSpace(currentQ.OptionA)
                             || !string.IsNullOrWhiteSpace(currentQ.OptionB)
@@ -172,12 +249,20 @@ namespace LyraSAT.Services
                     else if (TryExtractInlineOptions(currentQ, probe))
                     {
                         // Bốn đáp án nằm chung một dòng: đã tách xong.
+                        pendingOption = null;
                     }
                     else if (OptionLabel.IsMatch(probe))
                     {
                         var match = OptionLabel.Match(probe);
                         char optKey = char.ToUpperInvariant(match.Groups[1].Value[0]);
                         AssignOption(currentQ, optKey, NormalizeOptionText(probe.Substring(match.Length), optKey));
+                        pendingOption = optKey;
+                    }
+                    else if (pendingOption.HasValue)
+                    {
+                        // Dòng/bảng/hình nằm ngay sau nhãn đáp án (bảng trong đáp án, phân số
+                        // xếp dọc kiểu A. / 1 / 400) thì thuộc về đáp án đó.
+                        AppendOptionContent(currentQ, pendingOption.Value, line);
                     }
                     else
                     {
@@ -519,6 +604,48 @@ namespace LyraSAT.Services
                 case 'C': q.OptionC = value; break;
                 case 'D': q.OptionD = value; break;
             }
+        }
+
+        private static string GetOption(Question q, char key) => key switch
+        {
+            'A' => q.OptionA ?? string.Empty,
+            'B' => q.OptionB ?? string.Empty,
+            'C' => q.OptionC ?? string.Empty,
+            'D' => q.OptionD ?? string.Empty,
+            _ => string.Empty
+        };
+
+        /// <summary>
+        /// Nối thêm nội dung vào một đáp án: bảng/hình thì dán liền, phân số xếp dọc
+        /// ("1" rồi "400") thì nối bằng dấu /, chữ thường thì xuống dòng.
+        /// </summary>
+        private static void AppendOptionContent(Question q, char key, string raw)
+        {
+            var addition = (raw ?? string.Empty).Trim();
+            if (addition.Length == 0) return;
+
+            var existing = GetOption(q, key).Trim();
+            if (existing.Length == 0)
+            {
+                AssignOption(q, key, addition);
+                return;
+            }
+
+            string separator;
+            if (addition.StartsWith("<", StringComparison.Ordinal))
+            {
+                separator = string.Empty;
+            }
+            else if (AnswerMatcher.TryParseNumber(existing, out _) && AnswerMatcher.TryParseNumber(addition, out _))
+            {
+                separator = "/";
+            }
+            else
+            {
+                separator = "<br>";
+            }
+
+            AssignOption(q, key, existing + separator + addition);
         }
 
         private static void AddParagraphLines(List<string> lines, XWPFParagraph paragraph)
