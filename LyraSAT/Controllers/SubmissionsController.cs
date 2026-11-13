@@ -71,7 +71,8 @@ namespace LyraSAT.Controllers
 
                 if (question != null && !string.IsNullOrEmpty(question.CorrectAnswer))
                 {
-                    if (question.CorrectAnswer.Trim().Equals(selectedAnswer.Trim(), StringComparison.OrdinalIgnoreCase))
+                    // Trắc nghiệm so chữ cái; tự luận so giá trị số (3/2 = 1.5 = 1,5).
+                    if (AnswerMatcher.IsCorrect(question.CorrectAnswer, question.AcceptedAnswers, selectedAnswer))
                     {
                         correctCount++;
                         isCorrect = true;
@@ -246,6 +247,8 @@ namespace LyraSAT.Controllers
                         optionD = q.OptionD ?? "",
                         selectedAnswer = detail?.SelectedAnswer ?? "", // Đáp án học sinh chọn
                         correctAnswer = q.CorrectAnswer ?? "",          // Đáp án đúng thực tế
+                        questionType = q.QuestionType ?? AnswerMatcher.MultipleChoice,
+                        acceptedAnswers = q.AcceptedAnswers ?? "",
                         videoExplanationUrl = q.VideoExplanationUrl ?? "",
                         assets = q.Assets
                             .OrderBy(asset => asset.SortOrder)

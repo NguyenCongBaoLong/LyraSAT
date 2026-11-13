@@ -91,21 +91,8 @@ namespace LyraSAT.Services
 
                 if (plainLine.StartsWith("Text:", StringComparison.OrdinalIgnoreCase))
                 {
-                    if (currentQ != null)
-                    {
-                        currentQ.PassageText = JoinPreservingLineBreaks(passageLines);
-                        currentQ.QuestionText = JoinPreservingLineBreaks(questionLines);
-
-                        // Kiểm tra an toàn: Bắt buộc phải có QuestionText và OptionA để tránh lỗi cột NOT NULL của DB
-                        if (!string.IsNullOrEmpty(currentQ.QuestionText) && !string.IsNullOrEmpty(currentQ.OptionA))
-                        {
-                            questions.Add(currentQ);
-                        }
-                    }
-
+                    FinalizeQuestion(questions, currentQ, passageLines, questionLines);
                     currentQ = new Question { TestId = testId };
-                    passageLines.Clear();
-                    questionLines.Clear();
                     isReadingPassage = true;
 
                     string contentAfterColon = RemovePrefix(line, "Text:");
@@ -116,6 +103,16 @@ namespace LyraSAT.Services
                 }
                 else if (plainLine.StartsWith("Question:", StringComparison.OrdinalIgnoreCase) || plainLine.StartsWith("Câu:", StringComparison.OrdinalIgnoreCase))
                 {
+                    // Câu tự luận thường không có "Text:" ngăn cách, nên gặp "Question:" mới
+                    // là biết câu trước đã xong; chốt câu trước rồi mở câu mới.
+                    if (currentQ != null &&
+                        (!string.IsNullOrWhiteSpace(currentQ.QuestionText) ||
+                         !string.IsNullOrWhiteSpace(currentQ.CorrectAnswer)))
+                    {
+                        FinalizeQuestion(questions, currentQ, passageLines, questionLines);
+                        currentQ = null;
+                    }
+
                     if (currentQ == null)
                     {
                         currentQ = new Question { TestId = testId };
@@ -134,7 +131,27 @@ namespace LyraSAT.Services
                     if (IsAnswerLine(probe))
                     {
                         string? answer = ExtractAnswerLetter(probe);
-                        if (answer != null) currentQ.CorrectAnswer = answer;
+                        bool hasOptions = !string.IsNullOrWhiteSpace(currentQ.OptionA)
+                            || !string.IsNullOrWhiteSpace(currentQ.OptionB)
+                            || !string.IsNullOrWhiteSpace(currentQ.OptionC)
+                            || !string.IsNullOrWhiteSpace(currentQ.OptionD);
+
+                        if (answer != null)
+                        {
+                            currentQ.CorrectAnswer = answer;
+                            currentQ.QuestionType = AnswerMatcher.MultipleChoice;
+                        }
+                        else if (!hasOptions)
+                        {
+                            // Không có A/B/C/D và đáp án không phải chữ cái => câu tự luận.
+                            var accepted = ExtractFreeResponseAnswers(probe);
+                            if (accepted.Count > 0)
+                            {
+                                currentQ.QuestionType = AnswerMatcher.FreeResponse;
+                                currentQ.AcceptedAnswers = string.Join(" | ", accepted);
+                                currentQ.CorrectAnswer = accepted[0];
+                            }
+                        }
                     }
                     else if (probe.StartsWith("VIDEO", StringComparison.OrdinalIgnoreCase) || probe.StartsWith("Link video", StringComparison.OrdinalIgnoreCase))
                     {
@@ -172,18 +189,50 @@ namespace LyraSAT.Services
                 }
             }
 
-            if (currentQ != null)
-            {
-                currentQ.PassageText = JoinPreservingLineBreaks(passageLines);
-                currentQ.QuestionText = JoinPreservingLineBreaks(questionLines);
-
-                if (!string.IsNullOrEmpty(currentQ.QuestionText) && !string.IsNullOrEmpty(currentQ.OptionA))
-                {
-                    questions.Add(currentQ);
-                }
-            }
+            FinalizeQuestion(questions, currentQ, passageLines, questionLines);
 
             return questions;
+        }
+
+        /// <summary>
+        /// Chốt câu hỏi đang đọc: gắn đoạn văn + nội dung câu, thêm vào danh sách nếu dùng được,
+        /// rồi xoá buffer để đọc câu tiếp theo.
+        /// </summary>
+        private static void FinalizeQuestion(List<Question> questions, Question? current, List<string> passageLines, List<string> questionLines)
+        {
+            if (current == null) return;
+
+            current.PassageText = JoinPreservingLineBreaks(passageLines);
+            current.QuestionText = JoinPreservingLineBreaks(questionLines);
+
+            // Cột Options trong DB là NOT NULL: câu tự luận để chuỗi rỗng chứ không được null.
+            current.OptionA ??= string.Empty;
+            current.OptionB ??= string.Empty;
+            current.OptionC ??= string.Empty;
+            current.OptionD ??= string.Empty;
+            current.CorrectAnswer ??= string.Empty;
+            current.QuestionType = string.IsNullOrWhiteSpace(current.QuestionType)
+                ? AnswerMatcher.MultipleChoice
+                : current.QuestionType;
+
+            if (IsUsableQuestion(current))
+            {
+                questions.Add(current);
+            }
+
+            passageLines.Clear();
+            questionLines.Clear();
+        }
+
+        /// <summary>
+        /// Câu chỉ được lưu khi có nội dung câu hỏi. Câu tự luận không cần lựa chọn;
+        /// câu trắc nghiệm bắt buộc có OptionA vì cột này NOT NULL trong DB.
+        /// </summary>
+        private static bool IsUsableQuestion(Question q)
+        {
+            if (string.IsNullOrWhiteSpace(q.QuestionText)) return false;
+            if (AnswerMatcher.IsFreeResponse(q.QuestionType)) return true;
+            return !string.IsNullOrWhiteSpace(q.OptionA);
         }
 
         /// <summary>
@@ -201,6 +250,12 @@ namespace LyraSAT.Services
                 var q = questions[i];
                 var options = new[] { q.OptionA ?? "", q.OptionB ?? "", q.OptionC ?? "", q.OptionD ?? "" };
                 int number = i + 1;
+
+                if (AnswerMatcher.IsFreeResponse(q.QuestionType))
+                {
+                    ValidateFreeResponse(q, number, options, issues);
+                    continue;
+                }
 
                 var missing = new List<string>();
                 for (int k = 0; k < 4; k++)
@@ -251,6 +306,37 @@ namespace LyraSAT.Services
             }
 
             return issues;
+        }
+
+        /// <summary>
+        /// Câu tự luận: không có A/B/C/D, đáp án là danh sách cách ghi đúng cách nhau bằng dấu |,
+        /// mỗi cách ghi phải đọc được thành số (phân số, thập phân, số âm...).
+        /// </summary>
+        private static void ValidateFreeResponse(Question q, int number, string[] options, List<string> issues)
+        {
+            if (options.Any(text => !string.IsNullOrWhiteSpace(text)))
+            {
+                issues.Add($"Câu {number}: câu tự luận không được có đáp án A/B/C/D.");
+            }
+
+            var accepted = AnswerMatcher.SplitAccepted(q.AcceptedAnswers);
+            if (accepted.Count == 0)
+            {
+                issues.Add($"Câu {number}: không tìm thấy đáp án tự luận (cần dòng ANSWER: 3/2 | 1.5).");
+                return;
+            }
+
+            var bad = accepted.Where(answer => !AnswerMatcher.TryParseNumber(answer, out _)).ToList();
+            if (bad.Count > 0)
+            {
+                issues.Add($"Câu {number}: đáp án tự luận {string.Join(", ", bad.Select(x => $"'{x}'"))} không đọc được thành số.");
+            }
+
+            var stored = (q.AcceptedAnswers ?? "").Trim();
+            if (stored.EndsWith("|") || stored.EndsWith(";") || stored.Contains("||"))
+            {
+                issues.Add($"Câu {number}: danh sách đáp án tự luận bị thừa dấu phân tách.");
+            }
         }
 
         /// <summary>
@@ -309,6 +395,27 @@ namespace LyraSAT.Services
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// Đọc đáp án tự luận trong dòng ANSWER / Đáp án: "ANSWER: 3/2 | 1.5 | 1,5".
+        /// Dấu | (hoặc ;) phân tách các cách ghi đều được tính đúng. Bỏ dấu chấm/dấu phẩy
+        /// cuối câu nếu phần còn lại đọc được thành số.
+        /// </summary>
+        private static List<string> ExtractFreeResponseAnswers(string probe)
+        {
+            var colonIdx = probe.IndexOf(':');
+            var tail = colonIdx >= 0 ? probe.Substring(colonIdx + 1) : probe;
+
+            var accepted = new List<string>();
+            foreach (var rawPart in tail.Split(new[] { '|', ';' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                var part = rawPart.Trim().TrimEnd('.', '。', ',').Trim();
+                if (part.Length == 0) continue;
+                accepted.Add(part);
+            }
+
+            return accepted;
         }
 
         /// <summary>

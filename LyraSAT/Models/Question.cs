@@ -18,6 +18,10 @@ namespace LyraSAT.Models
         public string OptionC { get; set; }
         public string OptionD { get; set; }
         public string CorrectAnswer { get; set; }
+        // "MultipleChoice" (A/B/C/D) hoặc "FreeResponse" (học sinh gõ đáp án, chấm theo giá trị số).
+        public string QuestionType { get; set; } = "MultipleChoice";
+        // Các cách ghi được chấp nhận của câu tự luận, phân tách bằng dấu | ("3/2 | 1.5 | 1,5").
+        public string? AcceptedAnswers { get; set; }
         public string? VideoExplanationUrl { get; set; }
         public string? Explanation { get; set; }        
         public string? Section { get; set; }            

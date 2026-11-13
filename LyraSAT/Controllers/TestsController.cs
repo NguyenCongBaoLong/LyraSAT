@@ -146,6 +146,7 @@ namespace LyraSAT.Controllers
                 q.OptionB,
                 q.OptionC,
                 q.OptionD,
+                q.QuestionType,
                 Assets = q.Assets.OrderBy(asset => asset.SortOrder).Select(asset => new
                 {
                     asset.Id,
@@ -216,6 +217,8 @@ namespace LyraSAT.Controllers
                 return BadRequest(new { message = "Hệ thống chỉ hỗ trợ định dạng file Word (.docx)!" });
             }
 
+            Test? createdTest = null;
+
             try
             {
                 int? finalMaxAttempts = (maxAttempts.HasValue && maxAttempts.Value > 0) ? maxAttempts.Value : null;
@@ -249,6 +252,7 @@ namespace LyraSAT.Controllers
 
                 _context.Tests.Add(newTest);
                 await _context.SaveChangesAsync(); // Lưu để lấy TestId tự tăng
+                createdTest = newTest;
 
                 // 2. Đọc file Word (.docx) bằng thư viện NPOI, hỗ trợ trích xuất cả Paragraph và Table
                 using var stream = file.OpenReadStream();
@@ -312,6 +316,20 @@ namespace LyraSAT.Controllers
             }
             catch (Exception ex)
             {
+                // Không để lại đề rác: nếu đề đã được tạo mà bước sau lỗi thì xoá luôn.
+                if (createdTest != null)
+                {
+                    try
+                    {
+                        _context.Tests.Remove(createdTest);
+                        await _context.SaveChangesAsync();
+                    }
+                    catch (Exception cleanupEx)
+                    {
+                        _logger.LogError(cleanupEx, "Không xoá được đề rác {TestId} sau khi upload lỗi", createdTest.Id);
+                    }
+                }
+
                 var innerMsg = ex.InnerException != null ? " -> " + ex.InnerException.Message : "";
                 return StatusCode(500, new { message = "Lỗi khi xử lý file Word: " + ex.Message + innerMsg });
             }
@@ -504,6 +522,7 @@ namespace LyraSAT.Controllers
                         optionB = q.OptionB ?? "",
                         optionC = q.OptionC ?? "",
                         optionD = q.OptionD ?? "",
+                        questionType = q.QuestionType ?? "MultipleChoice",
                         assets = q.Assets
                             .OrderBy(asset => asset.Placement)
                             .ThenBy(asset => asset.SortOrder)

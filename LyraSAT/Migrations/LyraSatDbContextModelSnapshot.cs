@@ -173,6 +173,9 @@ namespace LyraSAT.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<string>("AcceptedAnswers")
+                        .HasColumnType("text");
+
                     b.Property<string>("CorrectAnswer")
                         .IsRequired()
                         .HasColumnType("text");
@@ -203,6 +206,10 @@ namespace LyraSAT.Migrations
                         .HasColumnType("text");
 
                     b.Property<string>("QuestionText")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("QuestionType")
                         .IsRequired()
                         .HasColumnType("text");
 
