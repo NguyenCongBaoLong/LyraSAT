@@ -210,6 +210,24 @@ namespace LyraSAT.Services
         {
             if (current == null) return;
 
+            // Đề Toán thường không có câu hỏi tách riêng: cả khối đề bài (có công thức, bảng)
+            // chính là câu hỏi. Nếu chưa có dòng Question: nào mà đã có đáp án/lựa chọn thì
+            // lấy toàn bộ phần đã đọc làm nội dung câu hỏi, không coi là đoạn văn.
+            bool hasAnswerOrOptions =
+                !string.IsNullOrWhiteSpace(current.CorrectAnswer) ||
+                !string.IsNullOrWhiteSpace(current.OptionA) ||
+                !string.IsNullOrWhiteSpace(current.OptionB) ||
+                !string.IsNullOrWhiteSpace(current.OptionC) ||
+                !string.IsNullOrWhiteSpace(current.OptionD);
+
+            if (hasAnswerOrOptions &&
+                !questionLines.Any(line => !string.IsNullOrWhiteSpace(line)) &&
+                passageLines.Any(line => !string.IsNullOrWhiteSpace(line)))
+            {
+                questionLines.AddRange(passageLines);
+                passageLines.Clear();
+            }
+
             current.PassageText = JoinPreservingLineBreaks(passageLines);
             current.QuestionText = JoinPreservingLineBreaks(questionLines);
 
