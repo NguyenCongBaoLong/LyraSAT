@@ -26,6 +26,14 @@ namespace LyraSAT.Services
         private static readonly Regex InlineLabel = new(
             @"(?<![A-Za-z0-9])[A-Da-d]\s*[:.)]\s*", RegexOptions.Compiled);
 
+        /// <summary>
+        /// Dòng mở đầu câu hỏi theo đúng mẫu đề của trung tâm: "Question 1." / "Question 12:" / "Câu 3."
+        /// (có số thứ tự, dấu chấm hoặc hai chấm) và cả dạng cũ "Question:" không số.
+        /// </summary>
+        private static readonly Regex QuestionHeading = new(
+            @"^\s*(?:Question|Câu|Cau)\s*(?:(\d+)\s*[.:)]?|:)\s*(.*)$",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
         public static List<string> ExtractDocumentLines(XWPFDocument document)
         {
             var extractedLines = new List<string>();
@@ -101,13 +109,14 @@ namespace LyraSAT.Services
                         passageLines.Add(contentAfterColon);
                     }
                 }
-                else if (plainLine.StartsWith("Question:", StringComparison.OrdinalIgnoreCase) || plainLine.StartsWith("Câu:", StringComparison.OrdinalIgnoreCase))
+                else if (TryReadQuestionHeading(plainLine, out string questionHeadingRest))
                 {
-                    // Câu tự luận thường không có "Text:" ngăn cách, nên gặp "Question:" mới
+                    // Câu tự luận thường không có "Text:" ngăn cách, nên gặp dòng mở đầu câu mới
                     // là biết câu trước đã xong; chốt câu trước rồi mở câu mới.
                     if (currentQ != null &&
                         (!string.IsNullOrWhiteSpace(currentQ.QuestionText) ||
-                         !string.IsNullOrWhiteSpace(currentQ.CorrectAnswer)))
+                         !string.IsNullOrWhiteSpace(currentQ.CorrectAnswer) ||
+                         questionLines.Any(line => !string.IsNullOrWhiteSpace(line))))
                     {
                         FinalizeQuestion(questions, currentQ, passageLines, questionLines);
                         currentQ = null;
@@ -120,10 +129,9 @@ namespace LyraSAT.Services
 
                     isReadingPassage = false;
 
-                    string contentAfterColon = RemovePrefix(line, plainLine[..(plainLine.IndexOf(':') + 1)]);
-                    if (!string.IsNullOrEmpty(contentAfterColon))
+                    if (!string.IsNullOrEmpty(questionHeadingRest))
                     {
-                        questionLines.Add(contentAfterColon);
+                        questionLines.Add(questionHeadingRest);
                     }
                 }
                 else if (currentQ != null)
@@ -381,6 +389,22 @@ namespace LyraSAT.Services
         }
 
         /// <summary>
+        /// Nhận dòng mở đầu câu hỏi. Chấp nhận cả mẫu của trung tâm ("Question 1.", "Question 12:")
+        /// lẫn mẫu cũ ("Question:", "Câu 1: ..."). Trả về phần nội dung nằm cùng dòng nếu có.
+        /// </summary>
+        private static bool TryReadQuestionHeading(string plainLine, out string rest)
+        {
+            rest = string.Empty;
+
+            // "Questioning the premise..." không phải tiêu đề câu hỏi.
+            var match = QuestionHeading.Match(plainLine);
+            if (!match.Success) return false;
+
+            rest = match.Groups[2].Value.Trim();
+            return true;
+        }
+
+        /// <summary>
         /// Lấy chữ cái đáp án đúng, chịu được "ANSWER D", "ANSWER: D", "Đáp án: d.".
         /// </summary>
         private static string? ExtractAnswerLetter(string probe)
@@ -482,15 +506,44 @@ namespace LyraSAT.Services
         private static void AddParagraphLines(List<string> lines, XWPFParagraph paragraph)
         {
             var html = RenderParagraph(paragraph);
-            if (string.IsNullOrWhiteSpace(html)) return;
+            if (string.IsNullOrWhiteSpace(html))
+            {
+                // Đoạn trống trong Word chính là dòng cách: giữ lại để web không dồn chữ vào nhau.
+                lines.Add(string.Empty);
+                return;
+            }
 
             var prefix = string.IsNullOrEmpty(paragraph.GetNumID()) ? string.Empty : "• ";
             lines.Add(prefix + html);
         }
 
+        /// <summary>
+        /// Nối các dòng của một khối văn bản, giữ cả dòng trống (tối đa một dòng trống liên tiếp)
+        /// để khoảng cách giữa các đoạn trong file Word còn nguyên khi hiển thị trên web.
+        /// </summary>
         private static string JoinPreservingLineBreaks(List<string> lines)
         {
-            return string.Join("<br>", lines.Where(line => !string.IsNullOrWhiteSpace(line))).Trim();
+            var content = new StringBuilder();
+
+            foreach (var rawLine in lines)
+            {
+                if (string.IsNullOrWhiteSpace(rawLine))
+                {
+                    if (content.Length > 0) content.Append("<br>");
+                    continue;
+                }
+
+                if (content.Length > 0) content.Append("<br>");
+                content.Append(rawLine.Trim());
+            }
+
+            var html = content.ToString().Trim();
+            while (html.EndsWith("<br>", StringComparison.OrdinalIgnoreCase))
+            {
+                html = html[..^4].TrimEnd();
+            }
+
+            return html;
         }
 
         private static string RenderParagraph(XWPFParagraph paragraph)
@@ -501,16 +554,30 @@ namespace LyraSAT.Services
                 AppendEmbeddedPictures(content, run);
 
                 var text = run.ToString();
-                if (string.IsNullOrEmpty(text)) continue;
+                if (!string.IsNullOrEmpty(text))
+                {
+                    var encoded = WebUtility.HtmlEncode(text).Replace("\r\n", "<br>").Replace("\n", "<br>");
+                    if (run.IsBold) encoded = $"<strong>{encoded}</strong>";
+                    if (run.IsItalic) encoded = $"<em>{encoded}</em>";
+                    if (HasUnderline(run)) encoded = $"<u>{encoded}</u>";
+                    content.Append(encoded);
+                }
 
-                var encoded = WebUtility.HtmlEncode(text).Replace("\r\n", "<br>").Replace("\n", "<br>");
-                if (run.IsBold) encoded = $"<strong>{encoded}</strong>";
-                if (run.IsItalic) encoded = $"<em>{encoded}</em>";
-                if (HasUnderline(run)) encoded = $"<u>{encoded}</u>";
-                content.Append(encoded);
+                // Shift+Enter trong Word tạo thẻ <w:br/> nằm trong run, NPOI không trả về như
+                // ký tự nên trước đây các dòng bị dính liền. Thêm lại đúng số lần ngắt dòng.
+                content.Append(ReadLineBreaks(run));
             }
 
             return content.ToString();
+        }
+
+        private static string ReadLineBreaks(XWPFRun run)
+        {
+            var ctr = run.GetCTR();
+            if (ctr == null) return string.Empty;
+
+            int count = ctr.SizeOfBrArray() + ctr.SizeOfCrArray();
+            return count <= 0 ? string.Empty : string.Concat(Enumerable.Repeat("<br>", count));
         }
 
         private static void AppendEmbeddedPictures(StringBuilder content, XWPFRun run)
