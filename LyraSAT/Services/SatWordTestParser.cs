@@ -489,11 +489,16 @@ namespace LyraSAT.Services
                     .Where(x => x.text.Length > 0)
                     .GroupBy(x => x.text, StringComparer.OrdinalIgnoreCase)
                     .Where(g => g.Count() > 1)
-                    .Select(g => string.Join("=", g.Select(x => x.letter)))
+                    .Select(g => new
+                    {
+                        Letters = string.Join("=", g.Select(x => x.letter)),
+                        Text = g.Key.Length > 50 ? g.Key.Substring(0, 47) + "..." : g.Key
+                    })
                     .ToList();
                 if (duplicated.Count > 0)
                 {
-                    issues.Add($"{where}: các đáp án {string.Join(", ", duplicated)} trùng nội dung.");
+                    var detail = string.Join("; ", duplicated.Select(d => $"{d.Letters} đều là \u201c{d.Text}\u201d"));
+                    issues.Add($"{where}: {detail} — thường do copy-paste, sửa lại nội dung một trong hai đáp án.");
                 }
 
                 var answer = (q.CorrectAnswer ?? "").Trim().ToUpperInvariant();
