@@ -159,7 +159,12 @@ namespace LyraSAT.Services
                 string plainLine = StripHtml(line).Trim();
                 if (string.IsNullOrEmpty(plainLine))
                 {
-                    if (currentQ != null && pendingOption == null)
+                    // Dòng chỉ có ảnh (không có chữ) vẫn phải vào đúng đáp án đang mở.
+                    if (currentQ != null && pendingOption.HasValue && !string.IsNullOrWhiteSpace(line))
+                    {
+                        AppendOptionContent(currentQ, pendingOption.Value, line);
+                    }
+                    else if (currentQ != null && pendingOption == null)
                     {
                         if (isReadingPassage) passageLines.Add(rawLine);
                         else questionLines.Add(rawLine);
