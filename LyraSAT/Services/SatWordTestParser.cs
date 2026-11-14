@@ -1,6 +1,5 @@
 using LyraSAT.Models;
 using NPOI.XWPF.UserModel;
-using System.Globalization;
 using System.Net;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -96,32 +95,13 @@ namespace LyraSAT.Services
         /// </summary>
         private static string RenderTable(XWPFTable table)
         {
-            var columnWidths = ReadGridWidths(table);
-            int columnCount = columnWidths.Count > 0
-                ? columnWidths.Count
-                : Math.Max(1, table.Rows.FirstOrDefault()?.GetTableCells().Count ?? 1);
+            int columnCount = Math.Max(1, table.Rows.FirstOrDefault()?.GetTableCells().Count ?? 1);
 
-            // --rich-cols để CSS biết bảng rộng bao nhiêu thì đủ: bảng nhiều cột không bị ép
-            // nhỏ đến mức chữ xuống dòng theo từng ký tự, thay vào đó cuộn ngang.
-            var html = new StringBuilder("<div class='rich-table-wrapper'><table class='rich-table' style='--rich-cols:")
-                .Append(columnCount).Append("'>");
-
-            // Giữ tỉ lệ cột như trong Word (gridCol), nếu file có khai báo.
-            if (columnWidths.Count > 0)
-            {
-                double total = columnWidths.Sum();
-                html.Append("<colgroup>");
-                foreach (var width in columnWidths)
-                {
-                    double percent = total > 0 ? width / total * 100 : 100.0 / columnWidths.Count;
-                    html.Append("<col style='width:")
-                        .Append(Math.Round(percent, 2).ToString(CultureInfo.InvariantCulture))
-                        .Append("%'>");
-                }
-                html.Append("</colgroup>");
-            }
-
-            html.Append("<tbody>");
+            // Số cột gắn vào class (không dùng style vì frontend lọc thuộc tính): CSS dựa vào
+            // đó để bảng nhiều cột đủ rộng, thà cuộn ngang còn hơn ép cột đến mức vỡ chữ.
+            var html = new StringBuilder("<div class='rich-table-wrapper'><table class='rich-table cols-")
+                .Append(Math.Min(columnCount, 10))
+                .Append("'><tbody>");
 
             foreach (var row in table.Rows)
             {
@@ -135,30 +115,6 @@ namespace LyraSAT.Services
 
             html.Append("</tbody></table></div>");
             return html.ToString();
-        }
-
-        /// <summary>Độ rộng các cột khai báo trong Word (đơn vị twips); rỗng nếu file không có.</summary>
-        private static List<double> ReadGridWidths(XWPFTable table)
-        {
-            var widths = new List<double>();
-            var gridColumns = table.GetCTTbl()?.tblGrid?.gridCol;
-            if (gridColumns == null) return widths;
-
-            foreach (var column in gridColumns)
-            {
-                if (column.w > 0)
-                {
-                    widths.Add(column.w);
-                }
-                else
-                {
-                    // Một cột không khai báo thì bỏ hết, dùng chia đều cho an toàn.
-                    widths.Clear();
-                    return widths;
-                }
-            }
-
-            return widths;
         }
 
         private static string RenderCell(XWPFTableCell cell)
