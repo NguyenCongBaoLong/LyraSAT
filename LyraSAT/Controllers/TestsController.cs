@@ -261,7 +261,7 @@ namespace LyraSAT.Controllers
                 var extractedLines = SatWordTestParser.ExtractDocumentLines(document);
 
                 // 3. Bóc tách câu hỏi SAT
-                var questions = SatWordTestParser.Parse(extractedLines, newTest.Id);
+                var questions = SatWordTestParser.Parse(extractedLines, newTest.Id, out var skippedQuestions);
 
                 // KIỂM TRA: Nếu không có câu hỏi hợp lệ -> Xóa bài test vừa tạo và báo lỗi
                 if (questions.Count == 0)
@@ -275,6 +275,11 @@ namespace LyraSAT.Controllers
                 // còn dính nhãn chữ cái, hoặc không đọc được đáp án đúng). Thà báo để giáo viên
                 // sửa file còn hơn để học sinh làm đề có đáp án sai.
                 var optionIssues = SatWordTestParser.Validate(questions);
+
+                // Câu không đọc được cũng là lỗi phải báo: bỏ im lặng thì giáo viên tưởng
+                // đề đã lên đủ, trong khi số câu bị thiếu và thứ tự bị lệch.
+                optionIssues.InsertRange(0, skippedQuestions);
+
                 if (optionIssues.Count > 0)
                 {
                     _context.Tests.Remove(newTest);
@@ -284,7 +289,7 @@ namespace LyraSAT.Controllers
                     var more = optionIssues.Count > 5 ? $" (còn {optionIssues.Count - 5} lỗi khác)" : "";
                     return BadRequest(new
                     {
-                        message = $"File Word có {optionIssues.Count} lỗi ở phần đáp án nên chưa được lưu: {preview}{more}",
+                        message = $"File Word có {optionIssues.Count} lỗi nên chưa được lưu: {preview}{more}",
                         issues = optionIssues
                     });
                 }

@@ -1,5 +1,6 @@
 using LyraSAT.Models;
 using NPOI.XWPF.UserModel;
+using System.Globalization;
 using System.Net;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -25,6 +26,27 @@ namespace LyraSAT.Services
         /// <summary>Nhãn đáp án nằm giữa dòng, dùng để tách khi cả bốn đáp án chung một dòng.</summary>
         private static readonly Regex InlineLabel = new(
             @"(?<![A-Za-z0-9])[A-Da-d]\s*[:.)]\s*", RegexOptions.Compiled);
+
+        /// <summary>
+        /// Chữ cái nhìn giống A-D nhưng khác bảng mã: А/В/С (Cyrillic), Α/Β (Hy Lạp),
+        /// Ａ/Ｂ/Ｃ/Ｄ (full-width). File Word hay bị lẫn khi copy từ nguồn khác; nếu không
+        /// chuẩn hoá thì nhãn "А:" không được nhận, đáp án A rỗng và cả câu bị bỏ.
+        /// </summary>
+        private static readonly Regex LookAlikeLabel = new(
+            @"(?<![A-Za-z0-9])([\u0410\u0412\u0421\u0391\u0392\uFF21-\uFF24\uFF41-\uFF44])(?=\s*[:.)])",
+            RegexOptions.Compiled);
+
+        private static char ToAsciiLabel(char c) => c switch
+        {
+            '\u0410' or '\u0391' or '\uFF21' or '\uFF41' => 'A',
+            '\u0412' or '\u0392' or '\uFF22' or '\uFF42' => 'B',
+            '\u0421' or '\uFF23' or '\uFF43' => 'C',
+            '\uFF24' or '\uFF44' => 'D',
+            _ => c,
+        };
+
+        private static string NormalizeLabelLetters(string text) =>
+            LookAlikeLabel.Replace(text, m => ToAsciiLabel(m.Groups[1].Value[0]).ToString());
 
         /// <summary>
         /// Dòng mở đầu câu hỏi theo đúng mẫu đề của trung tâm: "Question 1." / "Question 12:" / "Câu 3."
@@ -74,7 +96,32 @@ namespace LyraSAT.Services
         /// </summary>
         private static string RenderTable(XWPFTable table)
         {
-            var html = new StringBuilder("<div class='rich-table-wrapper'><table class='rich-table'><tbody>");
+            var columnWidths = ReadGridWidths(table);
+            int columnCount = columnWidths.Count > 0
+                ? columnWidths.Count
+                : Math.Max(1, table.Rows.FirstOrDefault()?.GetTableCells().Count ?? 1);
+
+            // --rich-cols để CSS biết bảng rộng bao nhiêu thì đủ: bảng nhiều cột không bị ép
+            // nhỏ đến mức chữ xuống dòng theo từng ký tự, thay vào đó cuộn ngang.
+            var html = new StringBuilder("<div class='rich-table-wrapper'><table class='rich-table' style='--rich-cols:")
+                .Append(columnCount).Append("'>");
+
+            // Giữ tỉ lệ cột như trong Word (gridCol), nếu file có khai báo.
+            if (columnWidths.Count > 0)
+            {
+                double total = columnWidths.Sum();
+                html.Append("<colgroup>");
+                foreach (var width in columnWidths)
+                {
+                    double percent = total > 0 ? width / total * 100 : 100.0 / columnWidths.Count;
+                    html.Append("<col style='width:")
+                        .Append(Math.Round(percent, 2).ToString(CultureInfo.InvariantCulture))
+                        .Append("%'>");
+                }
+                html.Append("</colgroup>");
+            }
+
+            html.Append("<tbody>");
 
             foreach (var row in table.Rows)
             {
@@ -88,6 +135,30 @@ namespace LyraSAT.Services
 
             html.Append("</tbody></table></div>");
             return html.ToString();
+        }
+
+        /// <summary>Độ rộng các cột khai báo trong Word (đơn vị twips); rỗng nếu file không có.</summary>
+        private static List<double> ReadGridWidths(XWPFTable table)
+        {
+            var widths = new List<double>();
+            var gridColumns = table.GetCTTbl()?.tblGrid?.gridCol;
+            if (gridColumns == null) return widths;
+
+            foreach (var column in gridColumns)
+            {
+                if (column.w > 0)
+                {
+                    widths.Add(column.w);
+                }
+                else
+                {
+                    // Một cột không khai báo thì bỏ hết, dùng chia đều cho an toàn.
+                    widths.Clear();
+                    return widths;
+                }
+            }
+
+            return widths;
         }
 
         private static string RenderCell(XWPFTableCell cell)
@@ -144,9 +215,16 @@ namespace LyraSAT.Services
             return contents;
         }
 
-        public static List<Question> Parse(List<string> lines, int testId)
+        public static List<Question> Parse(List<string> lines, int testId) => Parse(lines, testId, out _);
+
+        /// <summary>
+        /// Như Parse(lines, testId) nhưng trả thêm danh sách câu bị bỏ vì không đọc được dữ liệu.
+        /// Không được bỏ im lặng: mất một câu làm lệch số thứ tự của toàn bộ đề.
+        /// </summary>
+        public static List<Question> Parse(List<string> lines, int testId, out List<string> skipped)
         {
             var questions = new List<Question>();
+            skipped = new List<string>();
             Question? currentQ = null;
             var passageLines = new List<string>();
             var questionLines = new List<string>();
@@ -155,7 +233,9 @@ namespace LyraSAT.Services
 
             foreach (var rawLine in lines)
             {
-                string line = rawLine.Trim();
+                // Chuẩn hoá chữ cái nhìn giống A-D (Cyrillic/Hy Lạp/full-width) về ASCII
+                // trước khi nhận dạng nhãn đáp án.
+                string line = NormalizeLabelLetters(rawLine.Trim());
                 string plainLine = StripHtml(line).Trim();
                 if (string.IsNullOrEmpty(plainLine))
                 {
@@ -178,7 +258,7 @@ namespace LyraSAT.Services
 
                 if (plainLine.StartsWith("Text:", StringComparison.OrdinalIgnoreCase))
                 {
-                    FinalizeQuestion(questions, currentQ, passageLines, questionLines);
+                    FinalizeQuestion(questions, skipped, currentQ, passageLines, questionLines);
                     currentQ = new Question { TestId = testId };
                     isReadingPassage = true;
                     pendingOption = null;
@@ -198,7 +278,7 @@ namespace LyraSAT.Services
                          !string.IsNullOrWhiteSpace(currentQ.CorrectAnswer) ||
                          questionLines.Any(line => !string.IsNullOrWhiteSpace(line))))
                     {
-                        FinalizeQuestion(questions, currentQ, passageLines, questionLines);
+                        FinalizeQuestion(questions, skipped, currentQ, passageLines, questionLines);
                         currentQ = null;
                     }
 
@@ -271,7 +351,20 @@ namespace LyraSAT.Services
                     }
                     else
                     {
-                        if (isReadingPassage)
+                        // Câu đang đọc đã có đáp án đúng rồi thì dòng này không thể thuộc câu đó:
+                        // đó là khối của câu tiếp theo. Đề của giáo viên hay quên chữ "Text:" ở
+                        // câu dạng ghi chú, nếu vẫn gắn vào câu cũ thì đoạn văn bị dồn sang câu
+                        // trước và câu sau mất đoạn văn.
+                        if (!isReadingPassage &&
+                            pendingOption == null &&
+                            !string.IsNullOrWhiteSpace(currentQ.CorrectAnswer))
+                        {
+                            FinalizeQuestion(questions, skipped, currentQ, passageLines, questionLines);
+                            currentQ = new Question { TestId = testId };
+                            isReadingPassage = true;
+                            passageLines.Add(line);
+                        }
+                        else if (isReadingPassage)
                         {
                             passageLines.Add(line);
                         }
@@ -287,7 +380,7 @@ namespace LyraSAT.Services
                 }
             }
 
-            FinalizeQuestion(questions, currentQ, passageLines, questionLines);
+            FinalizeQuestion(questions, skipped, currentQ, passageLines, questionLines);
 
             return questions;
         }
@@ -296,9 +389,27 @@ namespace LyraSAT.Services
         /// Chốt câu hỏi đang đọc: gắn đoạn văn + nội dung câu, thêm vào danh sách nếu dùng được,
         /// rồi xoá buffer để đọc câu tiếp theo.
         /// </summary>
-        private static void FinalizeQuestion(List<Question> questions, Question? current, List<string> passageLines, List<string> questionLines)
+        private static void FinalizeQuestion(List<Question> questions, List<string> skipped, Question? current, List<string> passageLines, List<string> questionLines)
         {
             if (current == null) return;
+
+            // Khối rỗng (ví dụ dòng "Text:" đứng riêng sau khi câu trước vừa chốt) thì bỏ qua
+            // im lặng, không tính là câu bị mất.
+            bool hasAnything =
+                !string.IsNullOrWhiteSpace(current.CorrectAnswer) ||
+                !string.IsNullOrWhiteSpace(current.OptionA) ||
+                !string.IsNullOrWhiteSpace(current.OptionB) ||
+                !string.IsNullOrWhiteSpace(current.OptionC) ||
+                !string.IsNullOrWhiteSpace(current.OptionD) ||
+                passageLines.Any(line => !string.IsNullOrWhiteSpace(line)) ||
+                questionLines.Any(line => !string.IsNullOrWhiteSpace(line));
+
+            if (!hasAnything)
+            {
+                passageLines.Clear();
+                questionLines.Clear();
+                return;
+            }
 
             // Đề Toán thường không có câu hỏi tách riêng: cả khối đề bài (có công thức, bảng)
             // chính là câu hỏi. Nếu chưa có dòng Question: nào mà đã có đáp án/lựa chọn thì
@@ -335,6 +446,23 @@ namespace LyraSAT.Services
             {
                 questions.Add(current);
             }
+            else
+            {
+                // Bỏ câu là chuyện lớn: mất một câu làm lệch số thứ tự của cả đề và giáo viên
+                // không biết mình thiếu gì. Ghi lại kèm trích đoạn để còn báo cho giáo viên.
+                var found = new List<string>();
+                if (!string.IsNullOrWhiteSpace(current.OptionB)) found.Add("B");
+                if (!string.IsNullOrWhiteSpace(current.OptionC)) found.Add("C");
+                if (!string.IsNullOrWhiteSpace(current.OptionD)) found.Add("D");
+
+                string reason = string.IsNullOrWhiteSpace(current.QuestionText)
+                    ? "không đọc được nội dung câu hỏi"
+                    : found.Count > 0
+                        ? $"có đáp án {string.Join(", ", found)} nhưng không đọc được đáp án A"
+                        : "không đọc được đáp án A, B, C, D";
+
+                skipped.Add($"Một câu bị bỏ vì {reason}: \"{QuestionSnippet(current)}\"");
+            }
 
             passageLines.Clear();
             questionLines.Clear();
@@ -365,11 +493,13 @@ namespace LyraSAT.Services
             {
                 var q = questions[i];
                 var options = new[] { q.OptionA ?? "", q.OptionB ?? "", q.OptionC ?? "", q.OptionD ?? "" };
-                int number = i + 1;
+                // Ghi kèm trích đoạn câu hỏi: giáo viên tìm theo nội dung luôn đúng, không phụ
+                // thuộc việc đếm số thứ tự (đề có thể bị lệch nếu một câu không đọc được).
+                string where = QuestionLabel(q, i + 1);
 
                 if (AnswerMatcher.IsFreeResponse(q.QuestionType))
                 {
-                    ValidateFreeResponse(q, number, options, issues);
+                    ValidateFreeResponse(q, where, options, issues);
                     continue;
                 }
 
@@ -380,7 +510,7 @@ namespace LyraSAT.Services
                 }
                 if (missing.Count > 0)
                 {
-                    issues.Add($"Câu {number}: thiếu nội dung đáp án {string.Join(", ", missing)}.");
+                    issues.Add($"{where}: thiếu nội dung đáp án {string.Join(", ", missing)}.");
                 }
 
                 var labelled = new List<string>();
@@ -395,7 +525,7 @@ namespace LyraSAT.Services
                 }
                 if (labelled.Count > 0)
                 {
-                    issues.Add($"Câu {number}: đáp án {string.Join(", ", labelled)} vẫn còn dính nhãn chữ cái, hệ thống không đọc được.");
+                    issues.Add($"{where}: đáp án {string.Join(", ", labelled)} vẫn còn dính nhãn chữ cái, hệ thống không đọc được.");
                 }
 
                 var duplicated = options
@@ -407,17 +537,17 @@ namespace LyraSAT.Services
                     .ToList();
                 if (duplicated.Count > 0)
                 {
-                    issues.Add($"Câu {number}: các đáp án {string.Join(", ", duplicated)} trùng nội dung.");
+                    issues.Add($"{where}: các đáp án {string.Join(", ", duplicated)} trùng nội dung.");
                 }
 
                 var answer = (q.CorrectAnswer ?? "").Trim().ToUpperInvariant();
                 if (answer.Length == 0)
                 {
-                    issues.Add($"Câu {number}: không tìm thấy dòng đáp án đúng (ANSWER / Đáp án).");
+                    issues.Add($"{where}: không tìm thấy dòng đáp án đúng (ANSWER / Đáp án).");
                 }
                 else if (answer.Length != 1 || answer[0] < 'A' || answer[0] > 'D')
                 {
-                    issues.Add($"Câu {number}: đáp án đúng phải là A, B, C hoặc D (đang là '{q.CorrectAnswer}').");
+                    issues.Add($"{where}: đáp án đúng phải là A, B, C hoặc D (đang là '{q.CorrectAnswer}').");
                 }
             }
 
@@ -428,31 +558,51 @@ namespace LyraSAT.Services
         /// Câu tự luận: không có A/B/C/D, đáp án là danh sách cách ghi đúng cách nhau bằng dấu |,
         /// mỗi cách ghi phải đọc được thành số (phân số, thập phân, số âm...).
         /// </summary>
-        private static void ValidateFreeResponse(Question q, int number, string[] options, List<string> issues)
+        private static void ValidateFreeResponse(Question q, string where, string[] options, List<string> issues)
         {
             if (options.Any(text => !string.IsNullOrWhiteSpace(text)))
             {
-                issues.Add($"Câu {number}: câu tự luận không được có đáp án A/B/C/D.");
+                issues.Add($"{where}: câu tự luận không được có đáp án A/B/C/D.");
             }
 
             var accepted = AnswerMatcher.SplitAccepted(q.AcceptedAnswers);
             if (accepted.Count == 0)
             {
-                issues.Add($"Câu {number}: không tìm thấy đáp án tự luận (cần dòng ANSWER: 3/2 | 1.5).");
+                issues.Add($"{where}: không tìm thấy đáp án tự luận (cần dòng ANSWER: 3/2 | 1.5).");
                 return;
             }
 
             var bad = accepted.Where(answer => !AnswerMatcher.TryParseNumber(answer, out _)).ToList();
             if (bad.Count > 0)
             {
-                issues.Add($"Câu {number}: đáp án tự luận {string.Join(", ", bad.Select(x => $"'{x}'"))} không đọc được thành số.");
+                issues.Add($"{where}: đáp án tự luận {string.Join(", ", bad.Select(x => $"'{x}'"))} không đọc được thành số.");
             }
 
             var stored = (q.AcceptedAnswers ?? "").Trim();
             if (stored.EndsWith("|") || stored.EndsWith(";") || stored.Contains("||"))
             {
-                issues.Add($"Câu {number}: danh sách đáp án tự luận bị thừa dấu phân tách.");
+                issues.Add($"{where}: danh sách đáp án tự luận bị thừa dấu phân tách.");
             }
+        }
+
+        /// <summary>
+        /// Nhãn để giáo viên tìm đúng câu: "Câu 6 (“Which choice best describes…”)".
+        /// Số thứ tự chỉ là vị trí trong file; trích đoạn mới là thứ đối chiếu được.
+        /// </summary>
+        private static string QuestionLabel(Question q, int number)
+        {
+            var snippet = QuestionSnippet(q);
+            return string.IsNullOrWhiteSpace(snippet) ? $"Câu {number}" : $"Câu {number} (“{snippet}”)";
+        }
+
+        /// <summary>Trích đoạn ngắn của câu hỏi (hoặc đoạn văn nếu câu hỏi rỗng), đã bỏ HTML.</summary>
+        private static string QuestionSnippet(Question q, int maxLength = 60)
+        {
+            var text = StripHtml(q.QuestionText ?? "");
+            if (string.IsNullOrWhiteSpace(text)) text = StripHtml(q.PassageText ?? "");
+            text = Regex.Replace(text, @"\s+", " ").Trim();
+            if (text.Length > maxLength) text = text.Substring(0, maxLength - 3).TrimEnd() + "...";
+            return text;
         }
 
         /// <summary>
