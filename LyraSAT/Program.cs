@@ -4,9 +4,16 @@ using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+if (string.IsNullOrWhiteSpace(connectionString))
+{
+    throw new InvalidOperationException(
+        "Missing database connection string. Set the ConnectionStrings__DefaultConnection environment variable.");
+}
+
 // Add services to the container.
 builder.Services.AddDbContext<LyraSatDbContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection"),
+    options.UseNpgsql(connectionString,
         npgsqlOptions => npgsqlOptions
             .CommandTimeout(30)
             .EnableRetryOnFailure(3, TimeSpan.FromSeconds(5), null)));
