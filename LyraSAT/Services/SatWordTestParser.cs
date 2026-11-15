@@ -20,7 +20,7 @@ namespace LyraSAT.Services
 
         /// <summary>Ký hiệu bullet do Word tự sinh khi đoạn văn là danh sách.</summary>
         private static readonly Regex BulletPrefix = new(
-            @"^[\s\u00A0]*[•·▪◦‣∙\-–—\*]+\s*", RegexOptions.Compiled);
+            @"^[\s\u00A0]*(?:[•·▪◦‣∙]\s*|[-–—]\s+|\*\s+)", RegexOptions.Compiled);
 
         /// <summary>Nhãn đáp án nằm giữa dòng, dùng để tách khi cả bốn đáp án chung một dòng.</summary>
         private static readonly Regex InlineLabel = new(
@@ -556,11 +556,19 @@ namespace LyraSAT.Services
             return string.IsNullOrWhiteSpace(snippet) ? $"Câu {number}" : $"Câu {number} (“{snippet}”)";
         }
 
-        /// <summary>Trích đoạn ngắn của câu hỏi (hoặc đoạn văn nếu câu hỏi rỗng), đã bỏ HTML.</summary>
+        /// <summary>Trích đoạn ngắn của câu hỏi (hoặc đoạn văn/đáp án nếu câu hỏi rỗng), đã bỏ HTML.</summary>
         private static string QuestionSnippet(Question q, int maxLength = 60)
         {
             var text = StripHtml(q.QuestionText ?? "");
             if (string.IsNullOrWhiteSpace(text)) text = StripHtml(q.PassageText ?? "");
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                // Câu bị bỏ vì không có nội dung: lấy tạm đáp án đầu tiên để giáo viên nhận ra câu.
+                text = StripHtml(q.OptionA ?? "");
+                if (string.IsNullOrWhiteSpace(text)) text = StripHtml(q.OptionB ?? "");
+                if (string.IsNullOrWhiteSpace(text)) text = StripHtml(q.OptionC ?? "");
+                if (string.IsNullOrWhiteSpace(text)) text = StripHtml(q.OptionD ?? "");
+            }
             text = Regex.Replace(text, @"\s+", " ").Trim();
             if (text.Length > maxLength) text = text.Substring(0, maxLength - 3).TrimEnd() + "...";
             return text;
@@ -775,7 +783,16 @@ namespace LyraSAT.Services
             }
 
             var prefix = string.IsNullOrEmpty(paragraph.GetNumID()) ? string.Empty : "• ";
-            lines.Add(prefix + html);
+
+            // Shift+Enter trong Word sinh <br> ngay trong đoạn. Bộ đọc làm việc theo dòng
+            // nên phải tách mỗi <br> thành một dòng riêng: nếu để chung, cả đoạn nhiều dòng
+            // (đề bài + đáp án A-D + ANSWER) bị coi là một dòng và không bóc được gì.
+            // Khi ghép lại, JoinPreservingLineBreaks vẫn nối bằng <br> như cũ.
+            var parts = html.Split("<br>", StringSplitOptions.None);
+            for (int i = 0; i < parts.Length; i++)
+            {
+                lines.Add(i == 0 ? prefix + parts[i] : parts[i]);
+            }
         }
 
         /// <summary>
