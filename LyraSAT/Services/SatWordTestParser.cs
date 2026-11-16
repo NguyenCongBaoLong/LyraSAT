@@ -1,8 +1,10 @@
 using LyraSAT.Models;
 using NPOI.XWPF.UserModel;
+using System.IO.Compression;
 using System.Net;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Xml.Linq;
 
 namespace LyraSAT.Services
 {
@@ -55,15 +57,23 @@ namespace LyraSAT.Services
             @"^\s*(?:Question|Câu|Cau)\s*(?:(\d+)\s*[.:)]?|:)\s*(.*)$",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
-        public static List<string> ExtractDocumentLines(XWPFDocument document)
+        public static List<string> ExtractDocumentLines(XWPFDocument document, IReadOnlyList<string?>? paragraphMath = null)
         {
             var extractedLines = new List<string>();
+            int paragraphIndex = 0;
 
             foreach (var element in document.BodyElements)
             {
                 if (element is XWPFParagraph paragraph)
                 {
-                    AddParagraphLines(extractedLines, paragraph);
+                    // Đoạn có công thức Word (OMML) đã được dựng sẵn thành HTML ở tầng XML;
+                    // dùng bản đó thay cho RenderParagraph vì NPOI không đọc được OMML.
+                    string? mathHtml = paragraphMath != null && paragraphIndex < paragraphMath.Count
+                        ? paragraphMath[paragraphIndex]
+                        : null;
+                    paragraphIndex++;
+
+                    AddParagraphLines(extractedLines, paragraph, mathHtml);
                 }
                 else if (element is XWPFTable table)
                 {
@@ -88,6 +98,243 @@ namespace LyraSAT.Services
             }
 
             return extractedLines;
+        }
+
+        /// <summary>
+        /// Dựng các đoạn có công thức Word (OMML) thành HTML bằng cách đọc thẳng
+        /// word/document.xml, vì NPOI bỏ qua OMML nên công thức bị mất khỏi đề.
+        /// Trả về danh sách theo thứ tự đoạn cấp body; đoạn không có công thức là null.
+        /// </summary>
+        public static List<string?> ExtractParagraphMath(Stream docxStream)
+        {
+            var result = new List<string?>();
+
+            try
+            {
+                using var archive = new ZipArchive(docxStream, ZipArchiveMode.Read, leaveOpen: true);
+                var entry = archive.GetEntry("word/document.xml");
+                if (entry == null) return result;
+
+                using var xmlStream = entry.Open();
+                var document = XDocument.Load(xmlStream);
+                var body = document.Root?.Elements().FirstOrDefault(e => e.Name.LocalName == "body");
+                if (body == null) return result;
+
+                foreach (var child in body.Elements())
+                {
+                    if (child.Name.LocalName != "p") continue;
+                    bool hasMath = child.Descendants().Any(e => e.Name.LocalName == "oMath");
+                    result.Add(hasMath ? RenderParagraphXml(child) : null);
+                }
+            }
+            catch
+            {
+                // File lạ hoặc xml hỏng: bỏ qua, dùng cách đọc thường.
+                result.Clear();
+            }
+
+            return result;
+        }
+
+        /// <summary>Dựng một đoạn từ XML: chữ, ngắt dòng và công thức đúng thứ tự.</summary>
+        private static string RenderParagraphXml(XElement paragraph)
+        {
+            var content = new StringBuilder();
+            AppendParagraphXml(paragraph, content);
+            return content.ToString();
+        }
+
+        private static void AppendParagraphXml(XElement container, StringBuilder content)
+        {
+            foreach (var child in container.Elements())
+            {
+                switch (child.Name.LocalName)
+                {
+                    case "r":
+                        AppendRunXml(child, content);
+                        break;
+                    case "oMath":
+                    case "oMathPara":
+                        content.Append(OmmlToHtml(child));
+                        break;
+                    case "hyperlink":
+                    case "ins":
+                    case "smartTag":
+                    case "sdt":
+                    case "sdtContent":
+                        AppendParagraphXml(child, content);
+                        break;
+                }
+            }
+        }
+
+        private static void AppendRunXml(XElement run, StringBuilder content)
+        {
+            foreach (var child in run.Elements())
+            {
+                switch (child.Name.LocalName)
+                {
+                    case "t":
+                        content.Append(WebUtility.HtmlEncode(child.Value));
+                        break;
+                    case "br":
+                        content.Append("<br>");
+                        break;
+                    case "tab":
+                        content.Append(' ');
+                        break;
+                }
+            }
+        }
+
+        private static string OmmlToHtml(XElement math)
+        {
+            var content = new StringBuilder();
+            foreach (var child in math.Elements())
+            {
+                AppendMathNode(child, content);
+            }
+            return content.ToString();
+        }
+
+        private static string MathChildren(XElement? node)
+        {
+            if (node == null) return string.Empty;
+            var content = new StringBuilder();
+            foreach (var child in node.Elements())
+            {
+                AppendMathNode(child, content);
+            }
+            return content.ToString();
+        }
+
+        private static XElement? MathPart(XElement node, string name) =>
+            node.Elements().FirstOrDefault(e => e.Name.LocalName == name);
+
+        private static bool IsSimpleMathToken(string text) =>
+            text.Length > 0 && text.All(c => char.IsLetterOrDigit(c) || c is '.' or '-' or '+' or '√' or 'π');
+
+        /// <summary>
+        /// Công thức Word (OMML) sang HTML đọc được: phân số, số mũ, chỉ số, căn, tổng...
+        /// Không đẹp như công cụ toán học thật nhưng giữ đúng nội dung và thứ tự.
+        /// </summary>
+        private static void AppendMathNode(XElement node, StringBuilder content)
+        {
+            switch (node.Name.LocalName)
+            {
+                case "t":
+                    content.Append(WebUtility.HtmlEncode(node.Value));
+                    break;
+
+                case "r":
+                    foreach (var text in node.Elements().Where(e => e.Name.LocalName == "t"))
+                    {
+                        content.Append(WebUtility.HtmlEncode(text.Value));
+                    }
+                    break;
+
+                case "f":
+                    {
+                        string numerator = MathChildren(MathPart(node, "num")).Trim();
+                        string denominator = MathChildren(MathPart(node, "den")).Trim();
+                        if (IsSimpleMathToken(numerator) && IsSimpleMathToken(denominator))
+                        {
+                            content.Append(numerator).Append('/').Append(denominator);
+                        }
+                        else
+                        {
+                            content.Append('(').Append(numerator).Append(")/(").Append(denominator).Append(')');
+                        }
+                        break;
+                    }
+
+                case "sSup":
+                    content.Append(MathChildren(MathPart(node, "e")));
+                    content.Append("<sup>").Append(MathChildren(MathPart(node, "sup"))).Append("</sup>");
+                    break;
+
+                case "sSub":
+                    content.Append(MathChildren(MathPart(node, "e")));
+                    content.Append("<sub>").Append(MathChildren(MathPart(node, "sub"))).Append("</sub>");
+                    break;
+
+                case "sSubSup":
+                    content.Append(MathChildren(MathPart(node, "e")));
+                    content.Append("<sub>").Append(MathChildren(MathPart(node, "sub"))).Append("</sub>");
+                    content.Append("<sup>").Append(MathChildren(MathPart(node, "sup"))).Append("</sup>");
+                    break;
+
+                case "rad":
+                    {
+                        string degree = MathChildren(MathPart(node, "deg")).Trim();
+                        if (degree.Length > 0) content.Append("<sup>").Append(degree).Append("</sup>");
+                        content.Append('√').Append('(').Append(MathChildren(MathPart(node, "e")).Trim()).Append(')');
+                        break;
+                    }
+
+                case "d":
+                    content.Append('(').Append(MathChildren(MathPart(node, "e")).Trim()).Append(')');
+                    break;
+
+                case "nary":
+                    {
+                        string chr = MathPart(node, "naryPr")?.Elements()
+                            .FirstOrDefault(e => e.Name.LocalName == "chr")?.Attribute("val")?.Value ?? "∫";
+                        content.Append(WebUtility.HtmlEncode(chr));
+                        content.Append(MathChildren(MathPart(node, "sub")));
+                        content.Append(MathChildren(MathPart(node, "sup")));
+                        content.Append(MathChildren(MathPart(node, "e")));
+                        break;
+                    }
+
+                case "eqArr":
+                    {
+                        var rows = node.Elements().Where(e => e.Name.LocalName == "e")
+                            .Select(row => MathChildren(row))
+                            .Where(row => row.Length > 0);
+                        content.Append(string.Join("<br>", rows));
+                        break;
+                    }
+
+                case "func":
+                    content.Append(MathChildren(MathPart(node, "fName")));
+                    content.Append(MathChildren(MathPart(node, "e")));
+                    break;
+
+                case "limLow":
+                    content.Append(MathChildren(MathPart(node, "e")));
+                    content.Append("<sub>").Append(MathChildren(MathPart(node, "lim"))).Append("</sub>");
+                    break;
+
+                case "limUpp":
+                    content.Append(MathChildren(MathPart(node, "e")));
+                    content.Append("<sup>").Append(MathChildren(MathPart(node, "lim"))).Append("</sup>");
+                    break;
+
+                case "m":
+                    {
+                        var rows = node.Elements().Where(e => e.Name.LocalName == "mr")
+                            .Select(row => string.Join(", ", row.Elements()
+                                .Where(c => c.Name.LocalName == "e")
+                                .Select(cell => MathChildren(cell))));
+                        content.Append(string.Join("; ", rows));
+                        break;
+                    }
+
+                case "acc":
+                case "bar":
+                case "box":
+                case "borderBox":
+                case "groupChr":
+                case "phant":
+                case "e":
+                    content.Append(MathChildren(node));
+                    break;
+
+                default:
+                    content.Append(MathChildren(node));
+                    break;
+            }
         }
 
         /// <summary>
@@ -772,9 +1019,9 @@ namespace LyraSAT.Services
             AssignOption(q, key, existing + separator + addition);
         }
 
-        private static void AddParagraphLines(List<string> lines, XWPFParagraph paragraph)
+        private static void AddParagraphLines(List<string> lines, XWPFParagraph paragraph, string? mathHtml = null)
         {
-            var html = RenderParagraph(paragraph);
+            var html = string.IsNullOrWhiteSpace(mathHtml) ? RenderParagraph(paragraph) : mathHtml;
             if (string.IsNullOrWhiteSpace(html))
             {
                 // Đoạn trống trong Word chính là dòng cách: giữ lại để web không dồn chữ vào nhau.

@@ -256,9 +256,20 @@ namespace LyraSAT.Controllers
 
                 // 2. Đọc file Word (.docx) bằng thư viện NPOI, hỗ trợ trích xuất cả Paragraph và Table
                 using var stream = file.OpenReadStream();
-                var document = new XWPFDocument(stream);
+                using var buffer = new MemoryStream();
+                await stream.CopyToAsync(buffer);
 
-                var extractedLines = SatWordTestParser.ExtractDocumentLines(document);
+                buffer.Position = 0;
+                var fileBytes = buffer.ToArray();
+
+                // NPOI đóng stream sau khi đọc, nên giữ lại mảng byte để đọc thêm document.xml.
+                var document = new XWPFDocument(new MemoryStream(fileBytes));
+
+                // NPOI không đọc công thức Word (OMML) nên phải đọc thêm document.xml
+                // để dựng các đoạn có công thức; thiếu bước này đề Toán mất sạch công thức.
+                var paragraphMath = SatWordTestParser.ExtractParagraphMath(new MemoryStream(fileBytes));
+
+                var extractedLines = SatWordTestParser.ExtractDocumentLines(document, paragraphMath);
 
                 // 3. Bóc tách câu hỏi SAT
                 var questions = SatWordTestParser.Parse(extractedLines, newTest.Id, out var skippedQuestions);
