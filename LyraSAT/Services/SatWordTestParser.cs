@@ -154,8 +154,14 @@ namespace LyraSAT.Services
                         AppendRunXml(child, content);
                         break;
                     case "oMath":
+                        content.Append("<span class='math-inline'>")
+                            .Append(WebUtility.HtmlEncode(OmmlToLatex(child)))
+                            .Append("</span>");
+                        break;
                     case "oMathPara":
-                        content.Append(OmmlToHtml(child));
+                        content.Append("<div class='math-block'>")
+                            .Append(WebUtility.HtmlEncode(OmmlToLatex(child)))
+                            .Append("</div>");
                         break;
                     case "hyperlink":
                     case "ins":
@@ -183,27 +189,36 @@ namespace LyraSAT.Services
                     case "tab":
                         content.Append(' ');
                         break;
+                    case "oMath":
+                        content.Append("<span class='math-inline'>")
+                            .Append(WebUtility.HtmlEncode(OmmlToLatex(child)))
+                            .Append("</span>");
+                        break;
                 }
             }
         }
 
-        private static string OmmlToHtml(XElement math)
+        /// <summary>
+        /// Công thức Word (OMML) sang LaTeX để frontend vẽ bằng KaTeX: phân số xếp tầng,
+        /// căn có bậc, số mũ, chỉ số... nhìn giống bản Word thay vì chữ tuyến tính.
+        /// </summary>
+        private static string OmmlToLatex(XElement math)
         {
             var content = new StringBuilder();
             foreach (var child in math.Elements())
             {
-                AppendMathNode(child, content);
+                AppendMathLatex(child, content);
             }
-            return content.ToString();
+            return content.ToString().Trim();
         }
 
-        private static string MathChildren(XElement? node)
+        private static string MathLatex(XElement? node)
         {
             if (node == null) return string.Empty;
             var content = new StringBuilder();
             foreach (var child in node.Elements())
             {
-                AppendMathNode(child, content);
+                AppendMathLatex(child, content);
             }
             return content.ToString();
         }
@@ -211,128 +226,257 @@ namespace LyraSAT.Services
         private static XElement? MathPart(XElement node, string name) =>
             node.Elements().FirstOrDefault(e => e.Name.LocalName == name);
 
-        private static bool IsSimpleMathToken(string text) =>
-            text.Length > 0 && text.All(c => char.IsLetterOrDigit(c) || c is '.' or '-' or '+' or '√' or 'π');
+        /// <summary>Thuộc tính ký tự của khối công thức, ví dụ dấu ngoặc của m:d.</summary>
+        private static string MathChar(XElement node, string propsName, string charName, string fallback)
+        {
+            var props = MathPart(node, propsName);
+            var value = props?.Elements().FirstOrDefault(e => e.Name.LocalName == charName)
+                ?.Attribute("val")?.Value;
+            return string.IsNullOrEmpty(value) ? fallback : value;
+        }
 
-        /// <summary>
-        /// Công thức Word (OMML) sang HTML đọc được: phân số, số mũ, chỉ số, căn, tổng...
-        /// Không đẹp như công cụ toán học thật nhưng giữ đúng nội dung và thứ tự.
-        /// </summary>
-        private static void AppendMathNode(XElement node, StringBuilder content)
+        private static string EscapeLatex(string text)
+        {
+            var content = new StringBuilder();
+            foreach (char ch in text)
+            {
+                switch (ch)
+                {
+                    case '%':
+                    case '&':
+                    case '#':
+                    case '_':
+                    case '$':
+                    case '{':
+                    case '}':
+                        content.Append('\\').Append(ch);
+                        break;
+                    case '\\':
+                        content.Append("\\backslash ");
+                        break;
+                    case '~':
+                        content.Append("\\sim ");
+                        break;
+                    case '^':
+                        content.Append("\\wedge ");
+                        break;
+                    // Ký hiệu toán hay gặp khi gõ trực tiếp: đổi sang lệnh LaTeX để KaTeX vẽ được.
+                    case '≠':
+                        content.Append("\\neq ");
+                        break;
+                    case '≤':
+                        content.Append("\\le ");
+                        break;
+                    case '≥':
+                        content.Append("\\ge ");
+                        break;
+                    case '≈':
+                        content.Append("\\approx ");
+                        break;
+                    case '×':
+                        content.Append("\\times ");
+                        break;
+                    case '÷':
+                        content.Append("\\div ");
+                        break;
+                    case '±':
+                        content.Append("\\pm ");
+                        break;
+                    case '∞':
+                        content.Append("\\infty ");
+                        break;
+                    case 'π':
+                        content.Append("\\pi ");
+                        break;
+                    case 'θ':
+                        content.Append("\\theta ");
+                        break;
+                    case 'α':
+                        content.Append("\\alpha ");
+                        break;
+                    case 'β':
+                        content.Append("\\beta ");
+                        break;
+                    case '°':
+                        content.Append("^{\\circ}");
+                        break;
+                    case '·':
+                        content.Append("\\cdot ");
+                        break;
+                    case '−':
+                        content.Append('-');
+                        break;
+                    case '∈':
+                        content.Append("\\in ");
+                        break;
+                    default:
+                        content.Append(ch);
+                        break;
+                }
+            }
+            return content.ToString();
+        }
+
+        private static string NaryToLatex(string chr) => chr switch
+        {
+            "∑" => "\\sum",
+            "∏" => "\\prod",
+            "∫" => "\\int",
+            "∬" => "\\iint",
+            "∭" => "\\iiint",
+            "∮" => "\\oint",
+            "⋃" => "\\bigcup",
+            "⋂" => "\\bigcap",
+            _ => "\\sum",
+        };
+
+        private static void AppendMathLatex(XElement node, StringBuilder content)
         {
             switch (node.Name.LocalName)
             {
                 case "t":
-                    content.Append(WebUtility.HtmlEncode(node.Value));
+                    content.Append(EscapeLatex(node.Value));
                     break;
 
                 case "r":
                     foreach (var text in node.Elements().Where(e => e.Name.LocalName == "t"))
                     {
-                        content.Append(WebUtility.HtmlEncode(text.Value));
+                        content.Append(EscapeLatex(text.Value));
                     }
                     break;
 
                 case "f":
-                    {
-                        string numerator = MathChildren(MathPart(node, "num")).Trim();
-                        string denominator = MathChildren(MathPart(node, "den")).Trim();
-                        if (IsSimpleMathToken(numerator) && IsSimpleMathToken(denominator))
-                        {
-                            content.Append(numerator).Append('/').Append(denominator);
-                        }
-                        else
-                        {
-                            content.Append('(').Append(numerator).Append(")/(").Append(denominator).Append(')');
-                        }
-                        break;
-                    }
+                    content.Append("\\frac{").Append(MathLatex(MathPart(node, "num")).Trim())
+                        .Append("}{").Append(MathLatex(MathPart(node, "den")).Trim()).Append('}');
+                    break;
 
                 case "sSup":
-                    content.Append(MathChildren(MathPart(node, "e")));
-                    content.Append("<sup>").Append(MathChildren(MathPart(node, "sup"))).Append("</sup>");
+                    content.Append('{').Append(MathLatex(MathPart(node, "e")))
+                        .Append("}^{").Append(MathLatex(MathPart(node, "sup"))).Append('}');
                     break;
 
                 case "sSub":
-                    content.Append(MathChildren(MathPart(node, "e")));
-                    content.Append("<sub>").Append(MathChildren(MathPart(node, "sub"))).Append("</sub>");
+                    content.Append('{').Append(MathLatex(MathPart(node, "e")))
+                        .Append("}_{").Append(MathLatex(MathPart(node, "sub"))).Append('}');
                     break;
 
                 case "sSubSup":
-                    content.Append(MathChildren(MathPart(node, "e")));
-                    content.Append("<sub>").Append(MathChildren(MathPart(node, "sub"))).Append("</sub>");
-                    content.Append("<sup>").Append(MathChildren(MathPart(node, "sup"))).Append("</sup>");
+                    content.Append('{').Append(MathLatex(MathPart(node, "e")))
+                        .Append("}_{").Append(MathLatex(MathPart(node, "sub")))
+                        .Append("}^{").Append(MathLatex(MathPart(node, "sup"))).Append('}');
+                    break;
+
+                case "sPre":
+                    content.Append("{}").Append("_{").Append(MathLatex(MathPart(node, "sub")))
+                        .Append("}^{").Append(MathLatex(MathPart(node, "sup")))
+                        .Append('}').Append(MathLatex(MathPart(node, "e")));
                     break;
 
                 case "rad":
                     {
-                        string degree = MathChildren(MathPart(node, "deg")).Trim();
-                        if (degree.Length > 0) content.Append("<sup>").Append(degree).Append("</sup>");
-                        content.Append('√').Append('(').Append(MathChildren(MathPart(node, "e")).Trim()).Append(')');
+                        string degree = MathLatex(MathPart(node, "deg")).Trim();
+                        content.Append(degree.Length > 0 ? "\\sqrt[" + degree + "]{" : "\\sqrt{");
+                        content.Append(MathLatex(MathPart(node, "e")).Trim()).Append('}');
                         break;
                     }
 
                 case "d":
-                    content.Append('(').Append(MathChildren(MathPart(node, "e")).Trim()).Append(')');
-                    break;
+                    {
+                        string begin = MathChar(node, "dPr", "begChr", "(");
+                        string end = MathChar(node, "dPr", "endChr", ")");
+                        content.Append("\\left").Append(begin)
+                            .Append(MathLatex(MathPart(node, "e")).Trim())
+                            .Append("\\right").Append(end);
+                        break;
+                    }
 
                 case "nary":
                     {
-                        string chr = MathPart(node, "naryPr")?.Elements()
-                            .FirstOrDefault(e => e.Name.LocalName == "chr")?.Attribute("val")?.Value ?? "∫";
-                        content.Append(WebUtility.HtmlEncode(chr));
-                        content.Append(MathChildren(MathPart(node, "sub")));
-                        content.Append(MathChildren(MathPart(node, "sup")));
-                        content.Append(MathChildren(MathPart(node, "e")));
+                        string chr = MathChar(node, "naryPr", "chr", "∫");
+                        content.Append(NaryToLatex(chr));
+                        string sub = MathLatex(MathPart(node, "sub")).Trim();
+                        string sup = MathLatex(MathPart(node, "sup")).Trim();
+                        if (sub.Length > 0) content.Append("_{").Append(sub).Append('}');
+                        if (sup.Length > 0) content.Append("^{").Append(sup).Append('}');
+                        content.Append(' ').Append(MathLatex(MathPart(node, "e")).Trim());
                         break;
                     }
 
                 case "eqArr":
                     {
                         var rows = node.Elements().Where(e => e.Name.LocalName == "e")
-                            .Select(row => MathChildren(row))
-                            .Where(row => row.Length > 0);
-                        content.Append(string.Join("<br>", rows));
+                            .Select(row => MathLatex(row).Trim())
+                            .Where(row => row.Length > 0)
+                            .ToList();
+                        if (rows.Count > 0)
+                        {
+                            content.Append("\\begin{aligned}").Append(string.Join(" \\\\ ", rows)).Append("\\end{aligned}");
+                        }
                         break;
                     }
 
                 case "func":
-                    content.Append(MathChildren(MathPart(node, "fName")));
-                    content.Append(MathChildren(MathPart(node, "e")));
+                    content.Append(MathLatex(MathPart(node, "fName")).Trim());
+                    content.Append(MathLatex(MathPart(node, "e")));
                     break;
 
                 case "limLow":
-                    content.Append(MathChildren(MathPart(node, "e")));
-                    content.Append("<sub>").Append(MathChildren(MathPart(node, "lim"))).Append("</sub>");
+                    content.Append('{').Append(MathLatex(MathPart(node, "e")))
+                        .Append("}_{").Append(MathLatex(MathPart(node, "lim"))).Append('}');
                     break;
 
                 case "limUpp":
-                    content.Append(MathChildren(MathPart(node, "e")));
-                    content.Append("<sup>").Append(MathChildren(MathPart(node, "lim"))).Append("</sup>");
+                    content.Append('{').Append(MathLatex(MathPart(node, "e")))
+                        .Append("}^{").Append(MathLatex(MathPart(node, "lim"))).Append('}');
                     break;
 
                 case "m":
                     {
                         var rows = node.Elements().Where(e => e.Name.LocalName == "mr")
-                            .Select(row => string.Join(", ", row.Elements()
+                            .Select(row => string.Join(" & ", row.Elements()
                                 .Where(c => c.Name.LocalName == "e")
-                                .Select(cell => MathChildren(cell))));
-                        content.Append(string.Join("; ", rows));
+                                .Select(cell => MathLatex(cell).Trim())))
+                            .ToList();
+                        if (rows.Count > 0)
+                        {
+                            content.Append("\\begin{matrix}").Append(string.Join(" \\\\ ", rows)).Append("\\end{matrix}");
+                        }
                         break;
                     }
 
                 case "acc":
+                    {
+                        string chr = MathChar(node, "accPr", "chr", "^");
+                        string command = chr switch
+                        {
+                            "¯" => "\\bar",
+                            "→" => "\\vec",
+                            "˙" => "\\dot",
+                            "¨" => "\\ddot",
+                            _ => "\\hat",
+                        };
+                        content.Append(command).Append('{').Append(MathLatex(MathPart(node, "e"))).Append('}');
+                        break;
+                    }
+
                 case "bar":
-                case "box":
-                case "borderBox":
-                case "groupChr":
-                case "phant":
-                case "e":
-                    content.Append(MathChildren(node));
+                    content.Append("\\overline{").Append(MathLatex(MathPart(node, "e"))).Append('}');
                     break;
 
+                case "groupChr":
+                    {
+                        string chr = MathChar(node, "groupChrPr", "chr", "⏟");
+                        string command = chr == "⏞" ? "\\overbrace" : "\\underbrace";
+                        content.Append(command).Append('{').Append(MathLatex(MathPart(node, "e"))).Append('}');
+                        break;
+                    }
+
+                case "box":
+                case "borderBox":
+                case "phant":
+                case "e":
                 default:
-                    content.Append(MathChildren(node));
+                    content.Append(MathLatex(node));
                     break;
             }
         }
