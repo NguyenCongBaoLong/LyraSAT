@@ -736,6 +736,13 @@ namespace LyraSAT.Services
                     {
                         questionLines.Add(questionHeadingRest);
                     }
+
+                    // Đoạn mở đầu câu có thể kèm ảnh (đồ thị) ngay sau chữ "Question 6.".
+                    // Nếu chỉ lấy phần chữ thì ảnh trong đoạn đó bị mất.
+                    foreach (Match image in Regex.Matches(line, "<img[^>]*>"))
+                    {
+                        questionLines.Add(image.Value);
+                    }
                 }
                 else if (currentQ != null)
                 {
