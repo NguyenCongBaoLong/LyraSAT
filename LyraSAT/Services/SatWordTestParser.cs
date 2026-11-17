@@ -120,11 +120,13 @@ namespace LyraSAT.Services
                 var body = document.Root?.Elements().FirstOrDefault(e => e.Name.LocalName == "body");
                 if (body == null) return result;
 
+                var relationships = ReadDocumentRelationships(archive);
+
                 foreach (var child in body.Elements())
                 {
                     if (child.Name.LocalName != "p") continue;
                     bool hasMath = child.Descendants().Any(e => e.Name.LocalName == "oMath");
-                    result.Add(hasMath ? RenderParagraphXml(child) : null);
+                    result.Add(hasMath ? RenderParagraphXml(child, archive, relationships) : null);
                 }
             }
             catch
@@ -136,22 +138,43 @@ namespace LyraSAT.Services
             return result;
         }
 
-        /// <summary>Dựng một đoạn từ XML: chữ, ngắt dòng và công thức đúng thứ tự.</summary>
-        private static string RenderParagraphXml(XElement paragraph)
+        /// <summary>Bảng ánh xạ rId -> đường dẫn media trong file docx (để dựng lại ảnh).</summary>
+        private static Dictionary<string, string> ReadDocumentRelationships(ZipArchive archive)
+        {
+            var map = new Dictionary<string, string>(StringComparer.Ordinal);
+            var entry = archive.GetEntry("word/_rels/document.xml.rels");
+            if (entry == null) return map;
+
+            using var stream = entry.Open();
+            var document = XDocument.Load(stream);
+            foreach (var relationship in document.Root?.Elements() ?? Enumerable.Empty<XElement>())
+            {
+                var id = relationship.Attribute("Id")?.Value;
+                var target = relationship.Attribute("Target")?.Value;
+                if (string.IsNullOrEmpty(id) || string.IsNullOrEmpty(target)) continue;
+
+                var path = target.StartsWith("/") ? target.TrimStart('/') : "word/" + target;
+                map[id] = path;
+            }
+            return map;
+        }
+
+        /// <summary>Dựng một đoạn từ XML: chữ, ngắt dòng, công thức và ảnh đúng thứ tự.</summary>
+        private static string RenderParagraphXml(XElement paragraph, ZipArchive archive, Dictionary<string, string> relationships)
         {
             var content = new StringBuilder();
-            AppendParagraphXml(paragraph, content);
+            AppendParagraphXml(paragraph, content, archive, relationships);
             return content.ToString();
         }
 
-        private static void AppendParagraphXml(XElement container, StringBuilder content)
+        private static void AppendParagraphXml(XElement container, StringBuilder content, ZipArchive archive, Dictionary<string, string> relationships)
         {
             foreach (var child in container.Elements())
             {
                 switch (child.Name.LocalName)
                 {
                     case "r":
-                        AppendRunXml(child, content);
+                        AppendRunXml(child, content, archive, relationships);
                         break;
                     case "oMath":
                         content.Append("<span class='math-inline'>")
@@ -168,13 +191,13 @@ namespace LyraSAT.Services
                     case "smartTag":
                     case "sdt":
                     case "sdtContent":
-                        AppendParagraphXml(child, content);
+                        AppendParagraphXml(child, content, archive, relationships);
                         break;
                 }
             }
         }
 
-        private static void AppendRunXml(XElement run, StringBuilder content)
+        private static void AppendRunXml(XElement run, StringBuilder content, ZipArchive archive, Dictionary<string, string> relationships)
         {
             foreach (var child in run.Elements())
             {
@@ -189,6 +212,9 @@ namespace LyraSAT.Services
                     case "tab":
                         content.Append(' ');
                         break;
+                    case "drawing":
+                        AppendDrawingXml(child, content, archive, relationships);
+                        break;
                     case "oMath":
                         content.Append("<span class='math-inline'>")
                             .Append(WebUtility.HtmlEncode(OmmlToLatex(child)))
@@ -196,6 +222,30 @@ namespace LyraSAT.Services
                         break;
                 }
             }
+        }
+
+        /// <summary>
+        /// Ảnh nằm trong đoạn có công thức: đọc file media trong docx và nhúng thẳng dạng
+        /// data URI, giống đường xử lý ảnh thường, để không mất hình khi đoạn có OMML.
+        /// </summary>
+        private static void AppendDrawingXml(XElement drawing, StringBuilder content, ZipArchive archive, Dictionary<string, string> relationships)
+        {
+            var blip = drawing.Descendants().FirstOrDefault(e => e.Name.LocalName == "blip");
+            var embedId = blip?.Attributes().FirstOrDefault(a => a.Name.LocalName == "embed")?.Value;
+            if (string.IsNullOrEmpty(embedId) || !relationships.TryGetValue(embedId, out var path)) return;
+
+            var entry = archive.GetEntry(path);
+            if (entry == null) return;
+
+            using var stream = entry.Open();
+            using var memory = new MemoryStream();
+            stream.CopyTo(memory);
+            var bytes = memory.ToArray();
+            if (bytes.Length == 0) return;
+
+            var mimeType = GetImageMimeType(path);
+            var dataUri = $"data:{mimeType};base64,{Convert.ToBase64String(bytes)}";
+            content.Append($"<img src=\"{dataUri}\" alt=\"Hình minh họa\" />");
         }
 
         /// <summary>
@@ -242,23 +292,29 @@ namespace LyraSAT.Services
             {
                 switch (ch)
                 {
+                    // Giáo viên hay gõ thẳng LaTeX vào equation, nên giữ nguyên các ký tự
+                    // có nghĩa trong LaTeX: \ ^ _ { } — chỉ thoát những ký tự phá cú pháp.
                     case '%':
                     case '&':
                     case '#':
-                    case '_':
                     case '$':
-                    case '{':
-                    case '}':
                         content.Append('\\').Append(ch);
-                        break;
-                    case '\\':
-                        content.Append("\\backslash ");
                         break;
                     case '~':
                         content.Append("\\sim ");
                         break;
-                    case '^':
-                        content.Append("\\wedge ");
+                    // Trong chế độ toán, dấu cách bị bỏ qua; đổi thành lệnh cách để câu chữ
+                    // gõ trong công thức (Word hay gõ cả câu vào equation) không bị dính chữ.
+                    case ' ':
+                        content.Append("\\ ");
+                        break;
+                    // '<' '>' phải đổi sang lệnh LaTeX, nếu để ký tự thật thì bộ lọc HTML
+                    // của frontend hiểu nhầm là thẻ và nuốt mất đoạn chữ phía sau.
+                    case '<':
+                        content.Append("\\lt ");
+                        break;
+                    case '>':
+                        content.Append("\\gt ");
                         break;
                     // Ký hiệu toán hay gặp khi gõ trực tiếp: đổi sang lệnh LaTeX để KaTeX vẽ được.
                     case '≠':
@@ -1110,14 +1166,31 @@ namespace LyraSAT.Services
             return true;
         }
 
+        /// <summary>
+        /// Đáp án chỉ toàn công thức: bọc vào span để frontend vẽ bằng KaTeX. Đáp án đã là HTML
+        /// (có span/div công thức) thì giữ nguyên.
+        /// </summary>
+        private static string WrapMathOption(string value)
+        {
+            var text = (value ?? string.Empty).Trim();
+            if (text.Length == 0) return text;
+            if (text.Contains("math-inline") || text.Contains("math-block") || text.Contains("<img")) return text;
+
+            bool looksLikeLatex = Regex.IsMatch(text, @"\\[a-zA-Z]{2,}|\^\{|_\{");
+            if (!looksLikeLatex) return text;
+
+            return $"<span class='math-inline'>{WebUtility.HtmlEncode(text)}</span>";
+        }
+
         private static void AssignOption(Question q, char key, string value)
         {
+            var text = WrapMathOption(value);
             switch (key)
             {
-                case 'A': q.OptionA = value; break;
-                case 'B': q.OptionB = value; break;
-                case 'C': q.OptionC = value; break;
-                case 'D': q.OptionD = value; break;
+                case 'A': q.OptionA = text; break;
+                case 'B': q.OptionB = text; break;
+                case 'C': q.OptionC = text; break;
+                case 'D': q.OptionD = text; break;
             }
         }
 
