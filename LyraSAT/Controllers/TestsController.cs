@@ -262,6 +262,10 @@ namespace LyraSAT.Controllers
                 buffer.Position = 0;
                 var fileBytes = buffer.ToArray();
 
+                // Một số file .docx (Google Docs, WPS, add-in) có entry zip kiểu
+                // "stored + data descriptor" mà .NET không đọc được; ghi lại zip sạch trước.
+                fileBytes = SatWordTestParser.TryNormalizeDocx(fileBytes) ?? fileBytes;
+
                 // NPOI đóng stream sau khi đọc, nên giữ lại mảng byte để đọc thêm document.xml.
                 var document = new XWPFDocument(new MemoryStream(fileBytes));
 

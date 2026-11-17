@@ -1,4 +1,5 @@
 using LyraSAT.Models;
+using ICSharpCode.SharpZipLib.Zip;
 using NPOI.XWPF.UserModel;
 using System.IO.Compression;
 using System.Net;
@@ -98,6 +99,44 @@ namespace LyraSAT.Services
             }
 
             return extractedLines;
+        }
+
+        /// <summary>
+        /// Một số file .docx do công cụ khác tạo (Google Docs, WPS, add-in) lưu entry zip ở dạng
+        /// "stored + data descriptor" — .NET ZipArchive không đọc được và NPOI văng lỗi
+        /// "The combination of Stored compression method and Descriptor flag...".
+        /// Đọc lại bằng SharpZipLib rồi ghi ra zip sạch (deflate, không descriptor).
+        /// </summary>
+        public static byte[]? TryNormalizeDocx(byte[] bytes)
+        {
+            try
+            {
+                using var input = new MemoryStream(bytes);
+                using var zip = new ICSharpCode.SharpZipLib.Zip.ZipFile(input);
+                using var output = new MemoryStream();
+
+                using (var zipOut = new ZipOutputStream(output) { IsStreamOwner = false })
+                {
+                    zipOut.SetLevel(6);
+                    foreach (ZipEntry entry in zip)
+                    {
+                        if (!entry.IsFile) continue;
+
+                        var newEntry = new ZipEntry(entry.Name) { DateTime = entry.DateTime };
+                        zipOut.PutNextEntry(newEntry);
+                        using var entryStream = zip.GetInputStream(entry);
+                        entryStream.CopyTo(zipOut);
+                        zipOut.CloseEntry();
+                    }
+                }
+
+                var normalized = output.ToArray();
+                return normalized.Length > 0 ? normalized : null;
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         /// <summary>
