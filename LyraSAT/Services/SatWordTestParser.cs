@@ -284,7 +284,27 @@ namespace LyraSAT.Services
 
             var mimeType = GetImageMimeType(path);
             var dataUri = $"data:{mimeType};base64,{Convert.ToBase64String(bytes)}";
-            content.Append($"<img src=\"{dataUri}\" alt=\"Hình minh họa\" />");
+
+            // Giữ đúng kích thước hiển thị trong Word (wp:extent), nếu không ảnh công thức
+            // sẽ phình to bằng pixel gốc và làm đáp án lệch cỡ chữ.
+            var extent = drawing.Descendants().FirstOrDefault(e => e.Name.LocalName == "extent");
+            long.TryParse(extent?.Attribute("cx")?.Value, out var widthEmu);
+            long.TryParse(extent?.Attribute("cy")?.Value, out var heightEmu);
+
+            content.Append($"<img src=\"{dataUri}\" alt=\"Hình minh họa\"{ImageSizeAttributes(widthEmu, heightEmu)} />");
+        }
+
+        /// <summary>
+        /// Đổi kích thước hiển thị của ảnh trong Word (EMU) sang pixel 96dpi để trình duyệt
+        /// vẽ đúng cỡ như bản Word. Không có thông tin thì để trình duyệt tự tính.
+        /// </summary>
+        private static string ImageSizeAttributes(long widthEmu, long heightEmu)
+        {
+            if (widthEmu <= 0 || heightEmu <= 0) return string.Empty;
+
+            var width = Math.Max(1, (int)Math.Round(widthEmu / 9525.0));
+            var height = Math.Max(1, (int)Math.Round(heightEmu / 9525.0));
+            return $" width=\"{width}\" height=\"{height}\"";
         }
 
         /// <summary>
@@ -1379,7 +1399,7 @@ namespace LyraSAT.Services
                 var fileName = pictureData.FileName;
                 var mimeType = GetImageMimeType(fileName);
                 var dataUri = $"data:{mimeType};base64,{Convert.ToBase64String(bytes)}";
-                content.Append($"<img src=\"{dataUri}\" alt=\"Hình minh họa\" />");
+                content.Append($"<img src=\"{dataUri}\" alt=\"Hình minh họa\"{ImageSizeAttributes(picture.Width, picture.Height)} />");
             }
         }
 
