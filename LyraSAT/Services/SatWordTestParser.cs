@@ -1263,6 +1263,25 @@ namespace LyraSAT.Services
             if (text.Length == 0) return text;
             if (text.Contains("math-inline") || text.Contains("math-block")) return text;
 
+            // Nội dung nhiều dòng (hệ phương trình, công thức riêng một dòng rồi mới tới câu văn):
+            // xử lý từng dòng, giữ nguyên thẻ xuống dòng.
+            if (text.Contains("<br") || text.Contains('\n') || text.Contains('\r'))
+            {
+                var parts = LineBreakRegex.Split(text);
+                for (var i = 0; i < parts.Length; i += 2)
+                    parts[i] = WrapPlainMathLine(parts[i]);
+                return string.Concat(parts);
+            }
+
+            return WrapPlainMathLine(text);
+        }
+
+        private static string WrapPlainMathLine(string value)
+        {
+            var text = value.Trim();
+            if (text.Length == 0) return value;
+            if (text.Contains("math-inline") || text.Contains("math-block")) return value;
+
             // Đã là LaTeX gõ tay.
             if (Regex.IsMatch(text, @"\\[a-zA-Z]{2,}|\^\{|_\{"))
                 return $"<span class='math-inline'>{WebUtility.HtmlEncode(text)}</span>";
@@ -1273,6 +1292,10 @@ namespace LyraSAT.Services
             // Công thức nằm giữa câu văn: "The function f is defined by f(x) = (8x + 4) / (7p), ..."
             return WrapInlinePlainMath(text);
         }
+
+        private static readonly Regex LineBreakRegex = new(
+            @"(<br\s*/?>|\r?\n)",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         private static readonly Regex InlineFormulaRegex = new(
             @"(?<tag><[^>]+>)|(?<formula>[A-Za-z]\([^()]{0,12}\)\s*=\s*[^,;<>]+?(?=\.(?:\s|$)|[,;]|$|<))",
