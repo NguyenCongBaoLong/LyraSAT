@@ -1278,7 +1278,7 @@ namespace LyraSAT.Services
 
         private static string WrapPlainMathLine(string value)
         {
-            var text = value.Trim();
+            var text = NormalizeMathEntities(value.Trim());
             if (text.Length == 0) return value;
             if (text.Contains("math-inline") || text.Contains("math-block")) return value;
 
@@ -1291,6 +1291,46 @@ namespace LyraSAT.Services
 
             // Công thức nằm giữa câu văn: "The function f is defined by f(x) = (8x + 4) / (7p), ..."
             return WrapInlinePlainMath(text);
+        }
+
+        private static readonly Regex NumericEntityRegex = new(
+            @"&#(x?[0-9A-Fa-f]+);", RegexOptions.Compiled);
+
+        private static readonly Dictionary<string, string> MathNamedEntities = new()
+        {
+            ["&sup2;"] = "²", ["&sup3;"] = "³", ["&sup1;"] = "¹",
+            ["&radic;"] = "√", ["&times;"] = "×", ["&divide;"] = "÷",
+            ["&plusmn;"] = "±", ["&ne;"] = "≠", ["&le;"] = "≤", ["&ge;"] = "≥",
+            ["&minus;"] = "−", ["&deg;"] = "°", ["&pi;"] = "π", ["&infin;"] = "∞",
+            ["&frac12;"] = "½", ["&frac14;"] = "¼", ["&frac34;"] = "¾"
+        };
+
+        /// <summary>
+        /// Word/NPOI hay lưu dấu mũ dưới dạng entity (x&#178;). Đổi về ký tự thật để nhận ra
+        /// công thức, nhưng không đụng tới các entity có thể phá cấu trúc HTML.
+        /// </summary>
+        private static string NormalizeMathEntities(string text)
+        {
+            if (!text.Contains('&')) return text;
+
+            text = NumericEntityRegex.Replace(text, match =>
+            {
+                var raw = match.Groups[1].Value;
+                int code;
+                var ok = raw.StartsWith("x", StringComparison.OrdinalIgnoreCase)
+                    ? int.TryParse(raw.Substring(1), System.Globalization.NumberStyles.HexNumber,
+                        System.Globalization.CultureInfo.InvariantCulture, out code)
+                    : int.TryParse(raw, out code);
+
+                if (!ok || code < 0xA0 || code > 0xFFFF) return match.Value;
+                if (code == '<' || code == '>' || code == '&' || code == '"' || code == '\'')
+                    return match.Value;
+
+                return char.ConvertFromUtf32(code);
+            });
+
+            foreach (var pair in MathNamedEntities) text = text.Replace(pair.Key, pair.Value);
+            return text;
         }
 
         private static readonly Regex LineBreakRegex = new(
