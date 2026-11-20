@@ -1261,15 +1261,34 @@ namespace LyraSAT.Services
         {
             var text = (value ?? string.Empty).Trim();
             if (text.Length == 0) return text;
-            if (text.Contains("math-inline") || text.Contains("math-block") || text.Contains("<img")) return text;
+            if (text.Contains("math-inline") || text.Contains("math-block")) return text;
 
             // Đã là LaTeX gõ tay.
             if (Regex.IsMatch(text, @"\\[a-zA-Z]{2,}|\^\{|_\{"))
                 return $"<span class='math-inline'>{WebUtility.HtmlEncode(text)}</span>";
 
-            if (!IsPlainMathText(text)) return text;
+            if (IsPlainMathText(text))
+                return $"<span class='math-inline'>{WebUtility.HtmlEncode(PlainTextToLatex(text))}</span>";
 
-            return $"<span class='math-inline'>{WebUtility.HtmlEncode(PlainTextToLatex(text))}</span>";
+            // Công thức nằm giữa câu văn: "The function f is defined by f(x) = (8x + 4) / (7p), ..."
+            return WrapInlinePlainMath(text);
+        }
+
+        private static readonly Regex InlineFormulaRegex = new(
+            @"(?<tag><[^>]+>)|(?<formula>[A-Za-z]\([^()]{0,12}\)\s*=\s*[^,;<>]+?(?=\.(?:\s|$)|[,;]|$|<))",
+            RegexOptions.Compiled);
+
+        private static string WrapInlinePlainMath(string value)
+        {
+            return InlineFormulaRegex.Replace(value, match =>
+            {
+                if (!match.Groups["formula"].Success) return match.Value;
+
+                var formula = match.Value.Trim();
+                if (!IsPlainMathText(formula)) return match.Value;
+
+                return $"<span class='math-inline'>{WebUtility.HtmlEncode(PlainTextToLatex(formula))}</span>";
+            });
         }
 
         private static bool IsPlainMathText(string text)
