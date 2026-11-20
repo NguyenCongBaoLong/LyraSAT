@@ -141,11 +141,11 @@ namespace LyraSAT.Controllers
                 .Select(q => new
             {
                 q.Id,
-                q.QuestionText,
-                q.OptionA,
-                q.OptionB,
-                q.OptionC,
-                q.OptionD,
+                QuestionText = SatWordTestParser.WrapPlainMath(q.QuestionText),
+                OptionA = SatWordTestParser.WrapPlainMath(q.OptionA),
+                OptionB = SatWordTestParser.WrapPlainMath(q.OptionB),
+                OptionC = SatWordTestParser.WrapPlainMath(q.OptionC),
+                OptionD = SatWordTestParser.WrapPlainMath(q.OptionD),
                 q.QuestionType,
                 Assets = q.Assets.OrderBy(asset => asset.SortOrder).Select(asset => new
                 {
@@ -514,34 +514,42 @@ namespace LyraSAT.Controllers
         [HttpGet("{id}")]
         public async Task<IActionResult> GetTestDetail(int id)
         {
+            // Nạp entity rồi chiếu trong bộ nhớ để chuyển công thức gõ tay sang KaTeX
+            // cho cả những đề đã tải lên trước đây.
             var test = await _context.Tests
-                .Where(t => t.Id == id)
-                .Select(t => new
-                {
-                    id = t.Id,
-                    title = t.Title ?? "Bài test không tên",
-                    duration = t.Duration,
-                    videoExplanationUrl = t.VideoExplanationUrl ?? "",
-                    videos = t.Videos
-                        .OrderBy(v => v.SortOrder)
-                        .ThenBy(v => v.Id)
-                        .Select(v => new
-                        {
-                            id = v.Id,
-                            title = v.Title ?? "",
-                            url = v.Url
-                        }).ToList(),
-                    questions = t.Questions
-                        .OrderBy(q => q.Id)
-                        .Select(q => new
+                .Include(t => t.Questions)
+                .ThenInclude(q => q.Assets)
+                .Include(t => t.Videos)
+                .FirstOrDefaultAsync(t => t.Id == id);
+
+            if (test == null) return NotFound(new { message = "Không tìm thấy bài test" });
+
+            var payload = new
+            {
+                id = test.Id,
+                title = test.Title ?? "Bài test không tên",
+                duration = test.Duration,
+                videoExplanationUrl = test.VideoExplanationUrl ?? "",
+                videos = test.Videos
+                    .OrderBy(v => v.SortOrder)
+                    .ThenBy(v => v.Id)
+                    .Select(v => new
+                    {
+                        id = v.Id,
+                        title = v.Title ?? "",
+                        url = v.Url
+                    }).ToList(),
+                questions = test.Questions
+                    .OrderBy(q => q.Id)
+                    .Select(q => new
                     {
                         id = q.Id,
-                        questionText = q.QuestionText ?? "",
-                        passageText = q.PassageText ?? q.Explanation ?? "",
-                        optionA = q.OptionA ?? "",
-                        optionB = q.OptionB ?? "",
-                        optionC = q.OptionC ?? "",
-                        optionD = q.OptionD ?? "",
+                        questionText = SatWordTestParser.WrapPlainMath(q.QuestionText ?? ""),
+                        passageText = SatWordTestParser.WrapPlainMath(q.PassageText ?? q.Explanation ?? ""),
+                        optionA = SatWordTestParser.WrapPlainMath(q.OptionA ?? ""),
+                        optionB = SatWordTestParser.WrapPlainMath(q.OptionB ?? ""),
+                        optionC = SatWordTestParser.WrapPlainMath(q.OptionC ?? ""),
+                        optionD = SatWordTestParser.WrapPlainMath(q.OptionD ?? ""),
                         questionType = q.QuestionType ?? "MultipleChoice",
                         assets = q.Assets
                             .OrderBy(asset => asset.Placement)
@@ -559,11 +567,9 @@ namespace LyraSAT.Controllers
                                 sortOrder = asset.SortOrder
                             }).ToList()
                     }).ToList()
-                })
-                .FirstOrDefaultAsync();
+            };
 
-            if (test == null) return NotFound(new { message = "Không tìm thấy bài test" });
-            return Ok(test);
+            return Ok(payload);
         }
 
         [HttpGet("{testId}/submissions")]

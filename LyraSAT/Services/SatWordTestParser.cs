@@ -1233,19 +1233,103 @@ namespace LyraSAT.Services
         }
 
         /// <summary>
-        /// Đáp án chỉ toàn công thức: bọc vào span để frontend vẽ bằng KaTeX. Đáp án đã là HTML
+        /// Đáp án/câu chỉ toàn công thức: bọc vào span để frontend vẽ bằng KaTeX. Đáp án đã là HTML
         /// (có span/div công thức) thì giữ nguyên.
         /// </summary>
-        private static string WrapMathOption(string value)
+        private static string WrapMathOption(string value) => WrapPlainMath(value);
+
+        private static readonly Dictionary<char, string> VulgarFractions = new()
+        {
+            ['½'] = "\\frac{1}{2}", ['⅓'] = "\\frac{1}{3}", ['⅔'] = "\\frac{2}{3}",
+            ['¼'] = "\\frac{1}{4}", ['¾'] = "\\frac{3}{4}", ['⅕'] = "\\frac{1}{5}",
+            ['⅖'] = "\\frac{2}{5}", ['⅗'] = "\\frac{3}{5}", ['⅘'] = "\\frac{4}{5}",
+            ['⅙'] = "\\frac{1}{6}", ['⅚'] = "\\frac{5}{6}", ['⅛'] = "\\frac{1}{8}"
+        };
+
+        private static readonly Dictionary<char, char> SuperscriptDigits = new()
+        {
+            ['⁰'] = '0', ['¹'] = '1', ['²'] = '2', ['³'] = '3', ['⁴'] = '4',
+            ['⁵'] = '5', ['⁶'] = '6', ['⁷'] = '7', ['⁸'] = '8', ['⁹'] = '9'
+        };
+
+        /// <summary>
+        /// Giáo viên thường gõ công thức bằng chữ: 48(2)^(6x), √(4r - 7), 38/7.
+        /// Hàm này đổi sang LaTeX và bọc span.math-inline để frontend vẽ bằng KaTeX,
+        /// kể cả khi đề đã được tải lên từ trước (gọi lúc đọc đề).
+        /// </summary>
+        public static string WrapPlainMath(string? value)
         {
             var text = (value ?? string.Empty).Trim();
             if (text.Length == 0) return text;
             if (text.Contains("math-inline") || text.Contains("math-block") || text.Contains("<img")) return text;
 
-            bool looksLikeLatex = Regex.IsMatch(text, @"\\[a-zA-Z]{2,}|\^\{|_\{");
-            if (!looksLikeLatex) return text;
+            // Đã là LaTeX gõ tay.
+            if (Regex.IsMatch(text, @"\\[a-zA-Z]{2,}|\^\{|_\{"))
+                return $"<span class='math-inline'>{WebUtility.HtmlEncode(text)}</span>";
 
-            return $"<span class='math-inline'>{WebUtility.HtmlEncode(text)}</span>";
+            if (!IsPlainMathText(text)) return text;
+
+            return $"<span class='math-inline'>{WebUtility.HtmlEncode(PlainTextToLatex(text))}</span>";
+        }
+
+        private static bool IsPlainMathText(string text)
+        {
+            if (text.Length > 200) return false;
+            if (text.Contains('\\')) return false;
+            // Hệ phương trình nhiều dòng để nguyên, bọc span sẽ làm mất xuống dòng.
+            if (text.Contains('\n') || text.Contains('\r')) return false;
+
+            const string allowedSymbols = "√²³⁴⁵⁶⁷⁸⁹⁰⁻⁺₀₁₂₃₄₅₆₇₈₉π∞·×÷±≠≤≥–—−°½⅓⅔¼¾⅕⅖⅗⅘⅙⅚⅛";
+            if (text.Any(ch => ch > 0x7F && !allowedSymbols.Contains(ch))) return false;
+
+            if (!Regex.IsMatch(text, @"[\^√=]") && !Regex.IsMatch(text, @"\d\s*/\s*\d")) return false;
+
+            if (!Regex.IsMatch(text, @"^[A-Za-z0-9\s\+\-\*/\^\(\)\[\]\{\}\.,\=<>√²³⁴⁵⁶⁷⁸⁹⁰⁻⁺₀₁₂₃₄₅₆₇₈₉π∞·×÷±≠≤≥–—−°½⅓⅔¼¾⅕⅖⅗⅘⅙⅚⅛\|]+$"))
+                return false;
+
+            var withoutFunctions = Regex.Replace(text, @"\b(?:sin|cos|tan|cot|log|ln|max|min)\b", "", RegexOptions.IgnoreCase);
+            return !Regex.IsMatch(withoutFunctions, @"[A-Za-z]{3,}");
+        }
+
+        private static string PlainTextToLatex(string text)
+        {
+            var latex = text.Trim();
+
+            latex = Regex.Replace(latex, "[–—−]", "-");
+            latex = latex.Replace("×", "\\times ").Replace("÷", "\\div ").Replace("·", "\\cdot ")
+                .Replace("±", "\\pm ").Replace("∞", "\\infty ").Replace("π", "\\pi ")
+                .Replace("≠", "\\neq ").Replace("≤", "\\le ").Replace("≥", "\\ge ");
+            latex = latex.Replace("°", "^{\\circ}");
+
+            foreach (var pair in VulgarFractions) latex = latex.Replace(pair.Key.ToString(), pair.Value);
+
+            latex = Regex.Replace(latex, "[⁰¹²³⁴⁵⁶⁷⁸⁹]+", match =>
+                "^{" + string.Concat(match.Value.Select(ch => SuperscriptDigits[ch])) + "}");
+
+            latex = Regex.Replace(latex, @"√\s*\(([^()]*)\)", @"\sqrt{$1}");
+            latex = Regex.Replace(latex, @"√\s*([A-Za-z0-9.]+)", @"\sqrt{$1}");
+
+            latex = Regex.Replace(latex, @"\^\[([^\]]*)\]", "^{$1}");
+            latex = Regex.Replace(latex, @"\^\(([^()]*)\)", "^{$1}");
+            latex = Regex.Replace(latex, @"\^\{([^{}]*)\}", "^{$1}");
+            latex = Regex.Replace(latex, @"\^([A-Za-z0-9.]+)", "^{$1}");
+
+            latex = Regex.Replace(latex, @"_([A-Za-z0-9]+)", "_{$1}");
+
+            latex = Regex.Replace(latex, @"\(([^()]*)\)\s*/\s*\(([^()]*)\)", @"\frac{$1}{$2}");
+            latex = Regex.Replace(latex, @"([A-Za-z]\([^()]*\)[A-Za-z0-9]*)\s*/\s*\(([^()]*)\)", @"\frac{$1}{$2}");
+            latex = Regex.Replace(latex, @"(?<![\w.])(\d+(?:\.\d+)?)\s*/\s*(\d+(?:\.\d+)?)(?![\w.])", @"\frac{$1}{$2}");
+            latex = Regex.Replace(latex, @"([A-Za-z](?:\^\{[^{}]*\})?)\s*/\s*(\d+|[A-Za-z])", @"\frac{$1}{$2}");
+            latex = Regex.Replace(latex, @"\(\\frac\{([^{}]*)\}\{([^{}]*)\}\)", @"\frac{$1}{$2}");
+            latex = Regex.Replace(latex, @"(\\frac\{[^{}]*\}\{[^{}]*\})\.\s*", @"$1\cdot ");
+
+            // '<' '>' phải đổi sang lệnh LaTeX để bộ lọc HTML không hiểu nhầm là thẻ.
+            latex = latex.Replace("<", "\\lt ").Replace(">", "\\gt ");
+
+            latex = Regex.Replace(latex, @"[%&#$]", match => "\\" + match.Value);
+            latex = latex.Replace("_", "\\_");
+
+            return latex;
         }
 
         private static void AssignOption(Question q, char key, string value)
