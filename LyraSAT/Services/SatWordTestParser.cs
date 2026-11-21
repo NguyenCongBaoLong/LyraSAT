@@ -25,9 +25,12 @@ namespace LyraSAT.Services
         private static readonly Regex BulletPrefix = new(
             @"^[\s\u00A0]*(?:[•·▪◦‣∙]\s*|[-–—]\s+|\*\s+)", RegexOptions.Compiled);
 
-        /// <summary>Nhãn đáp án nằm giữa dòng, dùng để tách khi cả bốn đáp án chung một dòng.</summary>
-        private static readonly Regex InlineLabel = new(
-            @"(?<![A-Za-z0-9])[A-Da-d]\s*[:.)]\s*", RegexOptions.Compiled);
+        /// <summary>Nhãn đáp án nằm giữa dòng (chỉ khớp ngoài thẻ HTML), dùng để tách khi cả bốn đáp án chung một dòng.</summary>
+        private static readonly Regex InlineLabelOrTag = new(
+            @"(?<tag><[^>]+>)|(?<label>(?<![A-Za-z0-9])[A-Da-d]\s*[:.)]\s*)", RegexOptions.Compiled);
+
+        private static readonly Regex LeadingEmptyFormattingClose = new(
+            @"^(?:\s|</(?:strong|em|u)>)+", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         /// <summary>
         /// Chữ cái nhìn giống A-D nhưng khác bảng mã: А/В/С (Cyrillic), Α/Β (Hy Lạp),
@@ -58,10 +61,14 @@ namespace LyraSAT.Services
             @"^\s*(?:Question|Câu|Cau)\s*(?:(\d+)\s*[.:)]?|:)\s*(.*)$",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
-        public static List<string> ExtractDocumentLines(XWPFDocument document, IReadOnlyList<string?>? paragraphMath = null)
+        public static List<string> ExtractDocumentLines(
+            XWPFDocument document,
+            IReadOnlyList<string?>? paragraphMath = null,
+            IReadOnlyList<string?>? tableParagraphMath = null)
         {
             var extractedLines = new List<string>();
             int paragraphIndex = 0;
+            int tableParagraphIndex = 0;
 
             foreach (var element in document.BodyElements)
             {
@@ -80,9 +87,11 @@ namespace LyraSAT.Services
                 {
                     // Bảng 2x2 hoặc 1x4 mà mỗi ô là một đáp án (thường gặp ở đề Toán):
                     // tách thành 4 dòng "A. ...", "B. ..." để phần đọc câu hỏi gắn đúng vào đáp án.
-                    var optionCells = ReadOptionGrid(table);
+                    int probeIndex = tableParagraphIndex;
+                    var optionCells = ReadOptionGrid(table, tableParagraphMath, ref probeIndex);
                     if (optionCells != null)
                     {
+                        tableParagraphIndex = probeIndex;
                         // Mỗi đáp án thành 2 dòng: nhãn "A." rồi nội dung (bảng/chữ) để phần
                         // đọc câu hỏi gắn đúng nội dung, kể cả bảng HTML.
                         for (int i = 0; i < 4; i++)
@@ -93,7 +102,7 @@ namespace LyraSAT.Services
                     }
                     else
                     {
-                        extractedLines.Add(RenderTable(table));
+                        extractedLines.Add(RenderTable(table, tableParagraphMath, ref tableParagraphIndex));
                     }
                 }
             }
@@ -175,6 +184,72 @@ namespace LyraSAT.Services
             }
 
             return result;
+        }
+
+        /// <summary>
+        /// Dựng các đoạn có công thức Word (OMML) nằm bên trong bảng (w:tbl) thành HTML theo
+        /// thứ tự duyệt tr -> tc -> (p | tbl), vì NPOI bỏ qua OMML trong ô bảng khiến các ô
+        /// chứa x, f(x), phân số bị rỗng.
+        /// </summary>
+        public static List<string?> ExtractTableParagraphMath(Stream docxStream)
+        {
+            var result = new List<string?>();
+
+            try
+            {
+                using var archive = new ZipArchive(docxStream, ZipArchiveMode.Read, leaveOpen: true);
+                var entry = archive.GetEntry("word/document.xml");
+                if (entry == null) return result;
+
+                using var xmlStream = entry.Open();
+                var document = XDocument.Load(xmlStream);
+                var body = document.Root?.Elements().FirstOrDefault(e => e.Name.LocalName == "body");
+                if (body == null) return result;
+
+                var relationships = ReadDocumentRelationships(archive);
+
+                foreach (var child in body.Elements())
+                {
+                    if (child.Name.LocalName == "tbl")
+                    {
+                        CollectTableParagraphMath(child, archive, relationships, result);
+                    }
+                }
+            }
+            catch
+            {
+                result.Clear();
+            }
+
+            return result;
+        }
+
+        private static void CollectTableParagraphMath(
+            XElement table,
+            ZipArchive archive,
+            Dictionary<string, string> relationships,
+            List<string?> result)
+        {
+            foreach (var row in table.Elements())
+            {
+                if (row.Name.LocalName != "tr") continue;
+                foreach (var cell in row.Elements())
+                {
+                    if (cell.Name.LocalName != "tc") continue;
+                    foreach (var child in cell.Elements())
+                    {
+                        if (child.Name.LocalName == "p")
+                        {
+                            bool hasMath = child.Descendants().Any(e => e.Name.LocalName == "oMath");
+                            result.Add(hasMath ? RenderParagraphXml(child, archive, relationships) : null);
+                        }
+                        else if (child.Name.LocalName == "tbl")
+                        {
+                            CollectTableParagraphMath(child, archive, relationships, result);
+                        }
+                    }
+                }
+            }
         }
 
         /// <summary>Bảng ánh xạ rId -> đường dẫn media trong file docx (để dựng lại ảnh).</summary>
@@ -599,7 +674,10 @@ namespace LyraSAT.Services
         /// <summary>
         /// Bảng Word thành HTML, giữ cả bảng lồng trong ô (đề Toán hay có bảng trong đáp án).
         /// </summary>
-        private static string RenderTable(XWPFTable table)
+        private static string RenderTable(
+            XWPFTable table,
+            IReadOnlyList<string?>? tableParagraphMath,
+            ref int tableParagraphIndex)
         {
             int columnCount = Math.Max(1, table.Rows.FirstOrDefault()?.GetTableCells().Count ?? 1);
 
@@ -614,7 +692,7 @@ namespace LyraSAT.Services
                 html.Append("<tr>");
                 foreach (var cell in row.GetTableCells())
                 {
-                    html.Append("<td>").Append(RenderCell(cell)).Append("</td>");
+                    html.Append("<td>").Append(RenderCell(cell, tableParagraphMath, ref tableParagraphIndex)).Append("</td>");
                 }
                 html.Append("</tr>");
             }
@@ -623,7 +701,10 @@ namespace LyraSAT.Services
             return html.ToString();
         }
 
-        private static string RenderCell(XWPFTableCell cell)
+        private static string RenderCell(
+            XWPFTableCell cell,
+            IReadOnlyList<string?>? tableParagraphMath,
+            ref int tableParagraphIndex)
         {
             var parts = new List<string>();
 
@@ -631,12 +712,17 @@ namespace LyraSAT.Services
             {
                 if (element is XWPFParagraph paragraph)
                 {
-                    var html = RenderParagraph(paragraph);
+                    string? mathHtml = tableParagraphMath != null && tableParagraphIndex < tableParagraphMath.Count
+                        ? tableParagraphMath[tableParagraphIndex]
+                        : null;
+                    tableParagraphIndex++;
+
+                    var html = string.IsNullOrWhiteSpace(mathHtml) ? RenderParagraph(paragraph) : mathHtml;
                     if (!string.IsNullOrWhiteSpace(html)) parts.Add(html);
                 }
                 else if (element is XWPFTable nested)
                 {
-                    parts.Add(RenderTable(nested));
+                    parts.Add(RenderTable(nested, tableParagraphMath, ref tableParagraphIndex));
                 }
             }
 
@@ -647,7 +733,10 @@ namespace LyraSAT.Services
         /// Bảng 2x2 (hoặc 1x4) mà mỗi ô là một đáp án. Chỉ nhận khi mỗi ô có nhãn A/B/C/D
         /// hoặc chứa bảng riêng, để không nhầm bảng số liệu 2x2 của đề bài thành đáp án.
         /// </summary>
-        private static List<string>? ReadOptionGrid(XWPFTable table)
+        private static List<string>? ReadOptionGrid(
+            XWPFTable table,
+            IReadOnlyList<string?>? tableParagraphMath,
+            ref int tableParagraphIndex)
         {
             var cells = table.Rows.SelectMany(row => row.GetTableCells()).ToList();
             if (cells.Count != 4) return null;
@@ -658,14 +747,13 @@ namespace LyraSAT.Services
 
             foreach (var cell in cells)
             {
-                var html = RenderCell(cell).Trim();
+                var html = RenderCell(cell, tableParagraphMath, ref tableParagraphIndex).Trim();
                 if (html.Length == 0) return null;
 
-                var labelMatch = OptionLabel.Match(html);
-                if (labelMatch.Success)
+                if (TryStripOptionPrefixFromHtml(html, out char labelKey, out string stripped))
                 {
                     hasLabelledCell = true;
-                    html = NormalizeOptionText(html.Substring(labelMatch.Length), char.ToUpperInvariant(labelMatch.Groups[1].Value[0]));
+                    html = NormalizeOptionText(stripped, labelKey);
                 }
 
                 if (html.Contains("<table", StringComparison.OrdinalIgnoreCase)) hasNestedTable = true;
@@ -800,16 +888,14 @@ namespace LyraSAT.Services
                             currentQ.VideoExplanationUrl = probe.Substring(colonIdx + 1).Trim();
                         }
                     }
-                    else if (TryExtractInlineOptions(currentQ, probe))
+                    else if (TryExtractInlineOptions(currentQ, line))
                     {
                         // Bốn đáp án nằm chung một dòng: đã tách xong.
                         pendingOption = null;
                     }
-                    else if (OptionLabel.IsMatch(probe))
+                    else if (TryStripOptionPrefixFromHtml(line, out char optKey, out string optContent))
                     {
-                        var match = OptionLabel.Match(probe);
-                        char optKey = char.ToUpperInvariant(match.Groups[1].Value[0]);
-                        AssignOption(currentQ, optKey, NormalizeOptionText(probe.Substring(match.Length), optKey));
+                        AssignOption(currentQ, optKey, NormalizeOptionText(optContent, optKey));
                         pendingOption = optKey;
                     }
                     else if (pendingOption.HasValue)
@@ -1095,6 +1181,7 @@ namespace LyraSAT.Services
         private static string NormalizeOptionText(string raw, char expected)
         {
             var text = (raw ?? string.Empty).Trim();
+            char expectedUpper = char.ToUpperInvariant(expected);
             var label = new Regex($@"^{expected}\s*[:.)]\s*", RegexOptions.IgnoreCase);
 
             for (int guard = 0; guard < 4; guard++)
@@ -1102,16 +1189,127 @@ namespace LyraSAT.Services
                 var before = text;
                 text = BulletPrefix.Replace(text, string.Empty).Trim();
 
-                var match = label.Match(text);
-                if (match.Success && match.Length < text.Length)
+                if (TryStripOptionPrefixFromHtml(text, out char dupKey, out string after)
+                    && dupKey == expectedUpper
+                    && after.Length > 0)
                 {
-                    text = text.Substring(match.Length).Trim();
+                    text = after;
+                }
+                else
+                {
+                    var match = label.Match(text);
+                    if (match.Success && match.Length < text.Length)
+                    {
+                        text = text.Substring(match.Length).Trim();
+                    }
                 }
 
                 if (string.Equals(before, text, StringComparison.Ordinal)) break;
             }
 
             return text;
+        }
+
+        /// <summary>
+        /// Tách nhãn đáp án (kèm bullet nếu có) khỏi dòng HTML mà vẫn giữ nguyên toàn bộ thẻ
+        /// phía sau như &lt;img&gt;, &lt;span class='math-inline'&gt; hoặc &lt;strong&gt;.
+        /// </summary>
+        private static bool TryStripOptionPrefixFromHtml(string htmlLine, out char optKey, out string content)
+        {
+            optKey = '\0';
+            content = string.Empty;
+            if (string.IsNullOrEmpty(htmlLine)) return false;
+
+            var spans = new List<(int start, int end, char ch)>(32);
+            int i = 0;
+            while (i < htmlLine.Length && spans.Count < 32)
+            {
+                if (htmlLine[i] == '<')
+                {
+                    int close = htmlLine.IndexOf('>', i + 1);
+                    if (close < 0) break;
+                    var tagName = htmlLine.Substring(i + 1, close - i - 1).Trim().TrimStart('/');
+                    int space = tagName.IndexOfAny(new[] { ' ', '\t', '/' });
+                    if (space >= 0) tagName = tagName.Substring(0, space);
+                    if (tagName.Equals("img", StringComparison.OrdinalIgnoreCase) ||
+                        tagName.Equals("table", StringComparison.OrdinalIgnoreCase) ||
+                        tagName.Equals("div", StringComparison.OrdinalIgnoreCase) ||
+                        tagName.Equals("span", StringComparison.OrdinalIgnoreCase) ||
+                        tagName.Equals("br", StringComparison.OrdinalIgnoreCase))
+                    {
+                        break;
+                    }
+                    i = close + 1;
+                    continue;
+                }
+                spans.Add((i, i + 1, htmlLine[i]));
+                i++;
+            }
+
+            if (spans.Count == 0) return false;
+
+            var visible = new string(spans.Select(s => s.ch).ToArray());
+            var bulletMatch = BulletPrefix.Match(visible);
+            int offset = bulletMatch.Success ? bulletMatch.Length : 0;
+
+            var labelMatch = OptionLabel.Match(visible.Substring(offset));
+            if (!labelMatch.Success) return false;
+
+            optKey = char.ToUpperInvariant(labelMatch.Groups[1].Value[0]);
+            int visibleCut = offset + labelMatch.Length;
+            int cutPos = visibleCut > 0 ? spans[visibleCut - 1].end : 0;
+
+            var openTags = new Stack<string>();
+            int p = 0;
+            while (p < cutPos)
+            {
+                if (htmlLine[p] == '<')
+                {
+                    int close = htmlLine.IndexOf('>', p + 1);
+                    if (close < 0) break;
+                    var rawTag = htmlLine.Substring(p, close - p + 1);
+                    var inner = htmlLine.Substring(p + 1, close - p - 1).Trim();
+                    if (inner.StartsWith('/'))
+                    {
+                        if (openTags.Count > 0) openTags.Pop();
+                    }
+                    else if (!inner.EndsWith('/'))
+                    {
+                        openTags.Push(rawTag);
+                    }
+                    p = close + 1;
+                }
+                else
+                {
+                    p++;
+                }
+            }
+
+            while (cutPos < htmlLine.Length && openTags.Count > 0)
+            {
+                int ws = cutPos;
+                while (ws < htmlLine.Length && char.IsWhiteSpace(htmlLine[ws])) ws++;
+                if (ws < htmlLine.Length && htmlLine[ws] == '<')
+                {
+                    int close = htmlLine.IndexOf('>', ws + 1);
+                    if (close > ws && htmlLine[ws + 1] == '/')
+                    {
+                        var closeName = htmlLine.Substring(ws + 2, close - ws - 2).Trim();
+                        var openInner = openTags.Peek().Trim('<', '>', ' ');
+                        if (openInner.StartsWith(closeName, StringComparison.OrdinalIgnoreCase))
+                        {
+                            openTags.Pop();
+                            cutPos = close + 1;
+                            continue;
+                        }
+                    }
+                }
+                break;
+            }
+
+            var prefix = openTags.Count > 0 ? string.Concat(openTags.Reverse()) : string.Empty;
+            content = (prefix + htmlLine.Substring(cutPos)).Trim();
+            return true;
         }
 
         private static string StripBullet(string line)
@@ -1188,11 +1386,14 @@ namespace LyraSAT.Services
         /// </summary>
         private static bool TryExtractInlineOptions(Question q, string line)
         {
-            var matches = new List<Match>();
+            var matches = new List<Group>();
 
-            foreach (Match match in InlineLabel.Matches(line))
+            foreach (Match match in InlineLabelOrTag.Matches(line))
             {
-                char letter = char.ToUpperInvariant(match.Value.Trim()[0]);
+                var label = match.Groups["label"];
+                if (!label.Success) continue;
+
+                char letter = char.ToUpperInvariant(label.Value.Trim()[0]);
 
                 if (matches.Count == 0)
                 {
@@ -1204,7 +1405,7 @@ namespace LyraSAT.Services
                     if (letter != previous + 1) continue;
                 }
 
-                matches.Add(match);
+                matches.Add(label);
                 if (matches.Count == 4) break;
             }
 
@@ -1219,7 +1420,8 @@ namespace LyraSAT.Services
                 int end = i < 3 ? matches[i + 1].Index : line.Length;
                 if (end <= start) return false;
 
-                var value = NormalizeOptionText(line.Substring(start, end - start), (char)('A' + i));
+                var rawSlice = LeadingEmptyFormattingClose.Replace(line.Substring(start, end - start), string.Empty);
+                var value = NormalizeOptionText(rawSlice, (char)('A' + i));
                 if (value.Length == 0) return false;
                 values[i] = value;
             }

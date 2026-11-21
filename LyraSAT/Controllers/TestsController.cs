@@ -272,8 +272,9 @@ namespace LyraSAT.Controllers
                 // NPOI không đọc công thức Word (OMML) nên phải đọc thêm document.xml
                 // để dựng các đoạn có công thức; thiếu bước này đề Toán mất sạch công thức.
                 var paragraphMath = SatWordTestParser.ExtractParagraphMath(new MemoryStream(fileBytes));
+                var tableParagraphMath = SatWordTestParser.ExtractTableParagraphMath(new MemoryStream(fileBytes));
 
-                var extractedLines = SatWordTestParser.ExtractDocumentLines(document, paragraphMath);
+                var extractedLines = SatWordTestParser.ExtractDocumentLines(document, paragraphMath, tableParagraphMath);
 
                 // 3. Bóc tách câu hỏi SAT
                 var questions = SatWordTestParser.Parse(extractedLines, newTest.Id, out var skippedQuestions);
