@@ -123,17 +123,11 @@ namespace LyraSAT.Controllers
         {
             try
             {
-                var unreadNotifs = await _context.Notifications
+                var updatedCount = await _context.Notifications
                     .Where(n => n.UserId == userId && !n.IsRead)
-                    .ToListAsync();
+                    .ExecuteUpdateAsync(s => s.SetProperty(n => n.IsRead, true));
 
-                foreach (var notif in unreadNotifs)
-                {
-                    notif.IsRead = true;
-                }
-
-                await _context.SaveChangesAsync();
-                return Ok(new { message = "Đã đánh dấu đọc tất cả thông báo.", updatedCount = unreadNotifs.Count });
+                return Ok(new { message = "Đã đánh dấu đọc tất cả thông báo.", updatedCount });
             }
             catch (Exception ex)
             {

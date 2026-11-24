@@ -19,6 +19,10 @@ builder.Services.AddDbContext<LyraSatDbContext>(options =>
             .EnableRetryOnFailure(3, TimeSpan.FromSeconds(5), null)));
 
 builder.Services.AddControllers();
+builder.Services.AddResponseCompression(options =>
+{
+    options.EnableForHttps = true;
+});
 builder.Services.AddHttpClient<ISupabaseStorageService, SupabaseStorageService>();
 
 // Video chữa bài của giáo viên có thể vài chục MB, mặc định multipart chỉ 128MB
@@ -51,6 +55,8 @@ app.UseHttpsRedirection();
 
 // Phải đặt UseCors trước UseAuthorization và MapControllers
 app.UseCors("AllowAll");
+
+app.UseResponseCompression();
 
 app.UseStaticFiles();
 

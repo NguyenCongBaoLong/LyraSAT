@@ -34,6 +34,7 @@ namespace LyraSAT.Controllers
         public async Task<IActionResult> SubmitTest([FromBody] SubmitDto model)
         {
             var test = await _context.Tests
+                .AsNoTracking()
                 .Include(t => t.Questions)
                 .FirstOrDefaultAsync(t => t.Id == model.TestId);
 
@@ -57,6 +58,7 @@ namespace LyraSAT.Controllers
                 });
             }
 
+            var questionById = test.Questions.ToDictionary(q => q.Id);
             int totalQuestions = test.Questions.Count;
             int correctCount = 0;
             var submissionDetails = new List<SubmissionDetail>();
@@ -64,25 +66,31 @@ namespace LyraSAT.Controllers
             foreach (var kvp in model.Answers)
             {
                 int questionId = kvp.Key;
-                string selectedAnswer = kvp.Value ?? "";
+                if (!questionById.TryGetValue(questionId, out var question))
+                {
+                    continue;
+                }
 
-                var question = test.Questions.FirstOrDefault(q => q.Id == questionId);
+                string rawAnswer = (kvp.Value ?? string.Empty).Trim();
                 bool isCorrect = false;
 
-                if (question != null && !string.IsNullOrEmpty(question.CorrectAnswer))
+                if (!string.IsNullOrEmpty(question.CorrectAnswer) || !string.IsNullOrEmpty(question.AcceptedAnswers))
                 {
                     // Trắc nghiệm so chữ cái; tự luận so giá trị số (3/2 = 1.5 = 1,5).
-                    if (AnswerMatcher.IsCorrect(question.CorrectAnswer, question.AcceptedAnswers, selectedAnswer))
+                    if (AnswerMatcher.IsCorrect(question.CorrectAnswer, question.AcceptedAnswers, rawAnswer))
                     {
                         correctCount++;
                         isCorrect = true;
                     }
                 }
 
+                // Cột SelectedAnswer hiện tại tối đa 10 ký tự trong DB; cắt sau khi chấm để không văng lỗi 22001.
+                string storedAnswer = rawAnswer.Length > 10 ? rawAnswer[..10] : rawAnswer;
+
                 submissionDetails.Add(new SubmissionDetail
                 {
                     QuestionId = questionId,
-                    SelectedAnswer = selectedAnswer,
+                    SelectedAnswer = storedAnswer,
                     IsCorrect = isCorrect
                 });
             }
@@ -204,14 +212,20 @@ namespace LyraSAT.Controllers
         public async Task<IActionResult> ReviewSubmission(int submissionId)
         {
             var submission = await _context.Submissions
+                .AsNoTracking()
                 .Include(s => s.Test)
-                .ThenInclude(t => t.Questions)
+                .ThenInclude(t => t!.Questions)
                 .ThenInclude(q => q.Assets)
                 .Include(s => s.SubmissionDetails)
+                .AsSplitQuery()
                 .FirstOrDefaultAsync(s => s.Id == submissionId);
 
             if (submission == null)
                 return NotFound(new { message = "Không tìm thấy bài nộp!" });
+
+            var detailsByQuestionId = submission.SubmissionDetails
+                .GroupBy(sd => sd.QuestionId)
+                .ToDictionary(g => g.Key, g => g.First());
 
             var reviewData = new
             {
@@ -233,39 +247,41 @@ namespace LyraSAT.Controllers
                 correctCount = submission.CorrectCount,
                 totalQuestions = submission.TotalQuestions,
                 score = submission.Score,
-                questions = submission.Test?.Questions.Select(q =>
-                {
-                    var detail = submission.SubmissionDetails.FirstOrDefault(sd => sd.QuestionId == q.Id);
-                    return new
+                questions = (submission.Test?.Questions ?? Enumerable.Empty<Question>())
+                    .OrderBy(q => q.Id)
+                    .Select(q =>
                     {
-                        id = q.Id,
-                        questionText = q.QuestionText ?? "",
-                        passageText = q.PassageText ?? "", // Đã sửa từ q.Explanation thành q.PassageText chuẩn xác
-                        optionA = q.OptionA ?? "",
-                        optionB = q.OptionB ?? "",
-                        optionC = q.OptionC ?? "",
-                        optionD = q.OptionD ?? "",
-                        selectedAnswer = detail?.SelectedAnswer ?? "", // Đáp án học sinh chọn
-                        correctAnswer = q.CorrectAnswer ?? "",          // Đáp án đúng thực tế
-                        questionType = q.QuestionType ?? AnswerMatcher.MultipleChoice,
-                        acceptedAnswers = q.AcceptedAnswers ?? "",
-                        videoExplanationUrl = q.VideoExplanationUrl ?? "",
-                        assets = q.Assets
-                            .OrderBy(asset => asset.SortOrder)
-                            .Select(asset => new
-                            {
-                                id = asset.Id,
-                                assetType = asset.AssetType,
-                                fileUrl = asset.FileUrl,
-                                fileName = asset.FileName,
-                                mimeType = asset.MimeType,
-                                altText = asset.AltText ?? "",
-                                placement = asset.Placement,
-                                sortOrder = asset.SortOrder
-                            }).ToList(),
-                        isCorrect = detail?.IsCorrect ?? false
-                    };
-                }).ToList()
+                        detailsByQuestionId.TryGetValue(q.Id, out var detail);
+                        return new
+                        {
+                            id = q.Id,
+                            questionText = SatWordTestParser.WrapPlainMath(q.QuestionText ?? ""),
+                            passageText = SatWordTestParser.WrapPlainMath(q.PassageText ?? q.Explanation ?? ""),
+                            optionA = SatWordTestParser.WrapPlainMath(q.OptionA ?? ""),
+                            optionB = SatWordTestParser.WrapPlainMath(q.OptionB ?? ""),
+                            optionC = SatWordTestParser.WrapPlainMath(q.OptionC ?? ""),
+                            optionD = SatWordTestParser.WrapPlainMath(q.OptionD ?? ""),
+                            selectedAnswer = detail?.SelectedAnswer ?? "", // Đáp án học sinh chọn
+                            correctAnswer = q.CorrectAnswer ?? "",          // Đáp án đúng thực tế
+                            questionType = q.QuestionType ?? AnswerMatcher.MultipleChoice,
+                            acceptedAnswers = q.AcceptedAnswers ?? "",
+                            videoExplanationUrl = q.VideoExplanationUrl ?? "",
+                            assets = q.Assets
+                                .OrderBy(asset => asset.SortOrder)
+                                .Select(asset => new
+                                {
+                                    id = asset.Id,
+                                    assetType = asset.AssetType,
+                                    fileUrl = asset.FileUrl,
+                                    fileName = asset.FileName,
+                                    mimeType = asset.MimeType,
+                                    altText = asset.AltText ?? "",
+                                    placement = asset.Placement,
+                                    sortOrder = asset.SortOrder
+                                }).ToList(),
+                            isCorrect = detail?.IsCorrect ?? false
+                        };
+                    }).ToList()
             };
 
             return Ok(reviewData);

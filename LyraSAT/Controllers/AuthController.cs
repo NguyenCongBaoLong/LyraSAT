@@ -101,7 +101,8 @@ namespace LyraSAT.Controllers
                 return BadRequest(new { message = "Email này đã được sử dụng!" });
             }
 
-            var role = string.IsNullOrEmpty(model.Role) ? "Student" : model.Role;
+            // Đăng ký công khai luôn tạo tài khoản Student; tài khoản Teacher/Admin do Admin cấp.
+            const string role = "Student";
             var classCode = ClassCodeHelper.Normalize(model.ClassCode);
 
             // Học sinh đăng ký phải chọn lớp có thật, nếu không sẽ sinh ra mã lớp mồ côi

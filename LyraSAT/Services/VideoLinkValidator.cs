@@ -10,6 +10,14 @@ namespace LyraSAT.Services
     /// </summary>
     public static class VideoLinkValidator
     {
+        private static readonly Regex DirectVideoExtRegex = new(
+            @"\.(mp4|m4v|webm|mov|ogv)$",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static bool HostMatches(string host, string domain) =>
+            host.Equals(domain, StringComparison.OrdinalIgnoreCase) ||
+            host.EndsWith("." + domain, StringComparison.OrdinalIgnoreCase);
+
         /// <summary>
         /// Trả về null nếu link dùng được, hoặc câu thông báo lỗi bằng tiếng Việt.
         /// </summary>
@@ -27,33 +35,35 @@ namespace LyraSAT.Services
                 return null;
             }
 
-            if (!url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) &&
-                !url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) ||
+                (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
             {
                 return "Link phải bắt đầu bằng http:// hoặc https://.";
             }
 
+            var host = uri.Host;
+
             // Google Docs/Slides/Sheets và thư mục Drive bị Google chặn nhúng -> khung đen.
-            if (url.Contains("docs.google.com") || url.Contains("slides.google.com") ||
-                url.Contains("sheets.google.com") || url.Contains("drive.google.com/drive/"))
+            if (HostMatches(host, "docs.google.com") ||
+                HostMatches(host, "slides.google.com") ||
+                HostMatches(host, "sheets.google.com") ||
+                (HostMatches(host, "drive.google.com") && uri.AbsolutePath.StartsWith("/drive/", StringComparison.OrdinalIgnoreCase)))
             {
                 return "Link Google Docs/Slides/Drive folder không phát được trong khung video. " +
                        "Hãy mở file video bằng Drive rồi lấy link chia sẻ của chính file video đó.";
             }
 
-            if (url.Contains("youtube.com") || url.Contains("youtu.be"))
+            if (HostMatches(host, "youtube.com") ||
+                HostMatches(host, "youtu.be") ||
+                HostMatches(host, "drive.google.com") ||
+                HostMatches(host, "vimeo.com") ||
+                HostMatches(host, "loom.com"))
             {
                 return null;
             }
 
-            // Link Drive dạng file: /file/d/<id>/view hoặc open?id=...
-            if (url.Contains("drive.google.com"))
-            {
-                return null;
-            }
-
-            // Link video trực tiếp (.mp4, .webm...) hoặc dịch vụ nhúng phổ biến
-            if (Regex.IsMatch(url, @"\.(mp4|m4v|webm|mov|ogv)(\?.*)?$", RegexOptions.IgnoreCase))
+            // Link video trực tiếp (.mp4, .webm...)
+            if (DirectVideoExtRegex.IsMatch(uri.AbsolutePath))
             {
                 return null;
             }

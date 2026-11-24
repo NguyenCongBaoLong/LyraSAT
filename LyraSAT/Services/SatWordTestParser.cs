@@ -30,7 +30,95 @@ namespace LyraSAT.Services
             @"(?<tag><[^>]+>)|(?<label>(?<![A-Za-z0-9])[A-Da-d]\s*[:.)]\s*)", RegexOptions.Compiled);
 
         private static readonly Regex LeadingEmptyFormattingClose = new(
-            @"^(?:\s|</(?:strong|em|u)>)+", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+            @"^(?:\s|</(?:strong|em|u|sup|sub|i|b)>)+", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex TextPrefix = new(
+            @"^\s*Text\s*:\s*", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex QuestionHeadingPrefix = new(
+            @"^\s*(?:Question|Câu|Cau)\s*(?:\d+\s*[.:)]?|:)\s*", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex ImgTagRegex = new(
+            @"<img\b[^>]*>", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex HtmlTagRegex = new(
+            @"<[^>]+>", RegexOptions.Compiled);
+
+        private static readonly Regex LineBreakTagRegex = new(
+            @"<br\s*/?>", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex MultiWhitespaceRegex = new(
+            @"\s+", RegexOptions.Compiled);
+
+        private static readonly Regex InlineFormattingTagRegex = new(
+            @"</?(?:em|i|strong|b|u|span)\b[^>]*>", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex SupTagRegex = new(
+            @"<sup\b[^>]*>(.*?)</sup>", RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Singleline);
+
+        private static readonly Regex SubTagRegex = new(
+            @"<sub\b[^>]*>(.*?)</sub>", RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Singleline);
+
+        private static readonly Regex BlockOrMediaTagRegex = new(
+            @"<(?:img|table|thead|tbody|tr|td|th|div|ul|ol|li|p|br)\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex AnyHtmlTagNameRegex = new(
+            @"</?([a-zA-Z][a-zA-Z0-9]*)\b[^>]*>", RegexOptions.Compiled);
+
+        private static readonly Regex LatexCommandRegex = new(
+            @"\\[a-zA-Z]{2,}", RegexOptions.Compiled);
+
+        private static readonly Regex KnownLatexTextBlockRegex = new(
+            @"\\text\s*\{[^{}]*\}", RegexOptions.Compiled);
+
+        private static readonly Regex MathFunctionNameRegex = new(
+            @"\b(?:sin|cos|tan|cot|sec|csc|log|ln|max|min|lim|mod|gcd|lcm|sqrt|frac|left|right|cdot|times|div|pm|neq|le|ge|lt|gt|pi|infty|circ|overline|underline|vec|hat|bar|tilde|dot|ddot|text|aligned|matrix|cases)\b",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex MathWordsRegex = new(
+            @"[A-Za-z]{3,}", RegexOptions.Compiled);
+
+        private static readonly Regex OrdinalSupRegex = new(
+            @"^\s*\d+\^\{(?:st|nd|rd|th)\}\s*$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex MathSpanContainerRegex = new(
+            @"<(?<tag>span|div)\s+class=['""](?<cls>math-(?:inline|block))['""]>(?<inner>.*?)</\k<tag>>",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Singleline);
+
+        private static readonly Regex CorruptedSupRegex = new(
+            @"\\lt\s*sup\s*\\gt\s*(.*?)\s*\\lt\s*/sup\s*\\gt\s?", RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Singleline);
+
+        private static readonly Regex CorruptedSubRegex = new(
+            @"\\lt\s*sub\s*\\gt\s*(.*?)\s*\\lt\s*/sub\s*\\gt\s?", RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Singleline);
+
+        private static readonly Regex CorruptedFormattingTagRegex = new(
+            @"\\lt (/?)(em|strong|span|i|b|u)\\gt ?", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex MathSignalRegex = new(
+            @"[\^√=]|\d\s*/\s*\d", RegexOptions.Compiled);
+
+        private static readonly Regex AllowedPlainMathCharset = new(
+            @"^[A-Za-z0-9\s\+\-\*/\^\(\)\[\]\{\}\.,\=<>_√²³⁴⁵⁶⁷⁸⁹⁰⁻⁺₀₁₂₃₄₅₆₇₈₉π∞·×÷±≠≤≥–—−°½⅓⅔¼¾⅕⅖⅗⅘⅙⅚⅛\|]+$",
+            RegexOptions.Compiled);
+
+        private static readonly Regex DashRegex = new("[–—−]", RegexOptions.Compiled);
+        private static readonly Regex UnicodeSupRegex = new("[⁻⁺]?[⁰¹²³⁴⁵⁶⁷⁸⁹]+", RegexOptions.Compiled);
+        private static readonly Regex UnicodeSubRegex = new("[₀-₉]+", RegexOptions.Compiled);
+        private static readonly Regex SqrtParenRegex = new(@"√\s*\(([^()]*)\)", RegexOptions.Compiled);
+        private static readonly Regex SqrtAtomRegex = new(@"√\s*([A-Za-z0-9.]+)", RegexOptions.Compiled);
+        private static readonly Regex CaretBracketRegex = new(@"\^\[([^\]]*)\]", RegexOptions.Compiled);
+        private static readonly Regex CaretParenRegex = new(@"\^\(([^()]*)\)", RegexOptions.Compiled);
+        private static readonly Regex CaretBracedRegex = new(@"\^\{([^{}]*)\}", RegexOptions.Compiled);
+        private static readonly Regex CaretAtomRegex = new(@"\^(-?[A-Za-z0-9.]+)", RegexOptions.Compiled);
+        private static readonly Regex SubAtomRegex = new(@"_([A-Za-z0-9]+)", RegexOptions.Compiled);
+        private static readonly Regex FracParenParenRegex = new(@"\(([^()]*)\)\s*/\s*\(([^()]*)\)", RegexOptions.Compiled);
+        private static readonly Regex FracFuncParenRegex = new(@"([A-Za-z]\([^()]*\)[A-Za-z0-9]*)\s*/\s*\(([^()]*)\)", RegexOptions.Compiled);
+        private static readonly Regex FracNumNumRegex = new(@"(?<![\w.])(\d+(?:\.\d+)?)\s*/\s*(\d+(?:\.\d+)?)(?![\w.])", RegexOptions.Compiled);
+        private static readonly Regex FracAtomRegex = new(@"([A-Za-z](?:\^\{[^{}]*\})?)\s*/\s*(\d+|[A-Za-z])", RegexOptions.Compiled);
+        private static readonly Regex ParenFracRegex = new(@"\(\\frac\{([^{}]*)\}\{([^{}]*)\}\)", RegexOptions.Compiled);
+        private static readonly Regex FracDotRegex = new(@"(\\frac\{[^{}]*\}\{[^{}]*\})\.\s*", RegexOptions.Compiled);
+        private static readonly Regex SpecialMathEscapeRegex = new(@"[%&#$]", RegexOptions.Compiled);
+        private static readonly Regex StandaloneUnderscoreRegex = new(@"_(?!\{)", RegexOptions.Compiled);
 
         /// <summary>
         /// Chữ cái nhìn giống A-D nhưng khác bảng mã: А/В/С (Cyrillic), Α/Β (Hy Lạp),
@@ -149,80 +237,65 @@ namespace LyraSAT.Services
         }
 
         /// <summary>
-        /// Dựng các đoạn có công thức Word (OMML) thành HTML bằng cách đọc thẳng
-        /// word/document.xml, vì NPOI bỏ qua OMML nên công thức bị mất khỏi đề.
-        /// Trả về danh sách theo thứ tự đoạn cấp body; đoạn không có công thức là null.
+        /// Mở .docx một lần để tách đồng thời cả đoạn cấp body lẫn đoạn trong bảng có OMML,
+        /// giảm một nửa chi phí giải nén ZipArchive và parse XDocument.
         /// </summary>
-        public static List<string?> ExtractParagraphMath(Stream docxStream)
+        public static (List<string?> BodyMath, List<string?> TableMath) ExtractAllParagraphMath(Stream docxStream)
         {
-            var result = new List<string?>();
+            var bodyMath = new List<string?>();
+            var tableMath = new List<string?>();
 
             try
             {
                 using var archive = new ZipArchive(docxStream, ZipArchiveMode.Read, leaveOpen: true);
                 var entry = archive.GetEntry("word/document.xml");
-                if (entry == null) return result;
+                if (entry == null) return (bodyMath, tableMath);
 
                 using var xmlStream = entry.Open();
                 var document = XDocument.Load(xmlStream);
                 var body = document.Root?.Elements().FirstOrDefault(e => e.Name.LocalName == "body");
-                if (body == null) return result;
+                if (body == null) return (bodyMath, tableMath);
 
                 var relationships = ReadDocumentRelationships(archive);
 
                 foreach (var child in body.Elements())
                 {
-                    if (child.Name.LocalName != "p") continue;
-                    bool hasMath = child.Descendants().Any(e => e.Name.LocalName == "oMath");
-                    result.Add(hasMath ? RenderParagraphXml(child, archive, relationships) : null);
+                    if (child.Name.LocalName == "p")
+                    {
+                        bool hasMath = child.Descendants().Any(e => e.Name.LocalName == "oMath");
+                        bodyMath.Add(hasMath ? RenderParagraphXml(child, archive, relationships) : null);
+                    }
+                    else if (child.Name.LocalName == "tbl")
+                    {
+                        CollectTableParagraphMath(child, archive, relationships, tableMath);
+                    }
                 }
             }
             catch
             {
                 // File lạ hoặc xml hỏng: bỏ qua, dùng cách đọc thường.
-                result.Clear();
+                bodyMath.Clear();
+                tableMath.Clear();
             }
 
-            return result;
+            return (bodyMath, tableMath);
         }
+
+        /// <summary>
+        /// Dựng các đoạn có công thức Word (OMML) thành HTML bằng cách đọc thẳng
+        /// word/document.xml, vì NPOI bỏ qua OMML nên công thức bị mất khỏi đề.
+        /// Trả về danh sách theo thứ tự đoạn cấp body; đoạn không có công thức là null.
+        /// </summary>
+        public static List<string?> ExtractParagraphMath(Stream docxStream) =>
+            ExtractAllParagraphMath(docxStream).BodyMath;
 
         /// <summary>
         /// Dựng các đoạn có công thức Word (OMML) nằm bên trong bảng (w:tbl) thành HTML theo
         /// thứ tự duyệt tr -> tc -> (p | tbl), vì NPOI bỏ qua OMML trong ô bảng khiến các ô
         /// chứa x, f(x), phân số bị rỗng.
         /// </summary>
-        public static List<string?> ExtractTableParagraphMath(Stream docxStream)
-        {
-            var result = new List<string?>();
-
-            try
-            {
-                using var archive = new ZipArchive(docxStream, ZipArchiveMode.Read, leaveOpen: true);
-                var entry = archive.GetEntry("word/document.xml");
-                if (entry == null) return result;
-
-                using var xmlStream = entry.Open();
-                var document = XDocument.Load(xmlStream);
-                var body = document.Root?.Elements().FirstOrDefault(e => e.Name.LocalName == "body");
-                if (body == null) return result;
-
-                var relationships = ReadDocumentRelationships(archive);
-
-                foreach (var child in body.Elements())
-                {
-                    if (child.Name.LocalName == "tbl")
-                    {
-                        CollectTableParagraphMath(child, archive, relationships, result);
-                    }
-                }
-            }
-            catch
-            {
-                result.Clear();
-            }
-
-            return result;
-        }
+        public static List<string?> ExtractTableParagraphMath(Stream docxStream) =>
+            ExtractAllParagraphMath(docxStream).TableMath;
 
         private static void CollectTableParagraphMath(
             XElement table,
@@ -311,16 +384,50 @@ namespace LyraSAT.Services
             }
         }
 
+        private static string? AttrLocal(XElement? element, string localName) =>
+            element?.Attributes().FirstOrDefault(a => a.Name.LocalName == localName)?.Value;
+
+        private static bool IsWordToggleEnabled(XElement? prop)
+        {
+            if (prop == null) return false;
+            var val = AttrLocal(prop, "val");
+            return val == null ||
+                   (!val.Equals("0", StringComparison.Ordinal) &&
+                    !val.Equals("false", StringComparison.OrdinalIgnoreCase) &&
+                    !val.Equals("off", StringComparison.OrdinalIgnoreCase));
+        }
+
         private static void AppendRunXml(XElement run, StringBuilder content, ZipArchive archive, Dictionary<string, string> relationships)
         {
+            var rPr = run.Elements().FirstOrDefault(e => e.Name.LocalName == "rPr");
+            bool isBold = IsWordToggleEnabled(rPr?.Elements().FirstOrDefault(e => e.Name.LocalName == "b"));
+            bool isItalic = IsWordToggleEnabled(rPr?.Elements().FirstOrDefault(e => e.Name.LocalName == "i"));
+            var underlineVal = AttrLocal(rPr?.Elements().FirstOrDefault(e => e.Name.LocalName == "u"), "val");
+            bool isUnderline = rPr?.Elements().Any(e => e.Name.LocalName == "u") == true &&
+                               !string.Equals(underlineVal, "none", StringComparison.OrdinalIgnoreCase);
+            var vertAlign = AttrLocal(rPr?.Elements().FirstOrDefault(e => e.Name.LocalName == "vertAlign"), "val");
+            bool isSup = string.Equals(vertAlign, "superscript", StringComparison.OrdinalIgnoreCase);
+            bool isSub = string.Equals(vertAlign, "subscript", StringComparison.OrdinalIgnoreCase);
+
             foreach (var child in run.Elements())
             {
                 switch (child.Name.LocalName)
                 {
                     case "t":
-                        content.Append(WebUtility.HtmlEncode(child.Value));
+                        var text = child.Value;
+                        if (!string.IsNullOrEmpty(text))
+                        {
+                            var encoded = WebUtility.HtmlEncode(text).Replace("\r\n", "<br>").Replace("\n", "<br>");
+                            if (isSup) encoded = $"<sup>{encoded}</sup>";
+                            else if (isSub) encoded = $"<sub>{encoded}</sub>";
+                            if (isBold) encoded = $"<strong>{encoded}</strong>";
+                            if (isItalic) encoded = $"<em>{encoded}</em>";
+                            if (isUnderline) encoded = $"<u>{encoded}</u>";
+                            content.Append(encoded);
+                        }
                         break;
                     case "br":
+                    case "cr":
                         content.Append("<br>");
                         break;
                     case "tab":
@@ -410,14 +517,24 @@ namespace LyraSAT.Services
         private static XElement? MathPart(XElement node, string name) =>
             node.Elements().FirstOrDefault(e => e.Name.LocalName == name);
 
-        /// <summary>Thuộc tính ký tự của khối công thức, ví dụ dấu ngoặc của m:d.</summary>
+        /// <summary>Thuộc tính ký tự của khối công thức, ví dụ dấu ngoặc của m:d (hỗ trợ cả m:val="" rỗng).</summary>
         private static string MathChar(XElement node, string propsName, string charName, string fallback)
         {
             var props = MathPart(node, propsName);
-            var value = props?.Elements().FirstOrDefault(e => e.Name.LocalName == charName)
-                ?.Attribute("val")?.Value;
-            return string.IsNullOrEmpty(value) ? fallback : value;
+            var charEl = props?.Elements().FirstOrDefault(e => e.Name.LocalName == charName);
+            if (charEl == null) return fallback;
+
+            var valAttr = charEl.Attributes().FirstOrDefault(a => a.Name.LocalName == "val");
+            return valAttr == null ? fallback : valAttr.Value;
         }
+
+        private static string EscapeDelimiter(string delim) => delim switch
+        {
+            "" => ".",
+            "{" => "\\{",
+            "}" => "\\}",
+            _ => delim
+        };
 
         private static string EscapeLatex(string text)
         {
@@ -574,9 +691,13 @@ namespace LyraSAT.Services
                     {
                         string begin = MathChar(node, "dPr", "begChr", "(");
                         string end = MathChar(node, "dPr", "endChr", ")");
-                        content.Append("\\left").Append(begin)
-                            .Append(MathLatex(MathPart(node, "e")).Trim())
-                            .Append("\\right").Append(end);
+                        string sep = MathChar(node, "dPr", "sepChr", ",");
+                        var elements = node.Elements()
+                            .Where(e => e.Name.LocalName == "e")
+                            .Select(e => MathLatex(e).Trim());
+                        content.Append("\\left").Append(EscapeDelimiter(begin))
+                            .Append(string.Join(sep, elements))
+                            .Append("\\right").Append(EscapeDelimiter(end));
                         break;
                     }
 
@@ -639,10 +760,11 @@ namespace LyraSAT.Services
                         string chr = MathChar(node, "accPr", "chr", "^");
                         string command = chr switch
                         {
-                            "¯" => "\\bar",
-                            "→" => "\\vec",
-                            "˙" => "\\dot",
-                            "¨" => "\\ddot",
+                            "¯" or "\u0304" or "\u0305" => "\\overline",
+                            "→" or "\u20D7" => "\\vec",
+                            "˙" or "\u0307" => "\\dot",
+                            "¨" or "\u0308" => "\\ddot",
+                            "~" or "˜" or "\u0303" => "\\tilde",
                             _ => "\\hat",
                         };
                         content.Append(command).Append('{').Append(MathLatex(MathPart(node, "e"))).Append('}');
@@ -650,8 +772,14 @@ namespace LyraSAT.Services
                     }
 
                 case "bar":
-                    content.Append("\\overline{").Append(MathLatex(MathPart(node, "e"))).Append('}');
-                    break;
+                    {
+                        string pos = MathChar(node, "barPr", "pos", "top");
+                        string command = string.Equals(pos, "bot", StringComparison.OrdinalIgnoreCase)
+                            ? "\\underline"
+                            : "\\overline";
+                        content.Append(command).Append('{').Append(MathLatex(MathPart(node, "e"))).Append('}');
+                        break;
+                    }
 
                 case "groupChr":
                     {
@@ -813,7 +941,9 @@ namespace LyraSAT.Services
                     isReadingPassage = true;
                     pendingOption = null;
 
-                    string contentAfterColon = RemovePrefix(line, "Text:");
+                    string contentAfterColon = TryStripTextPrefixFromHtml(line, out string strippedText)
+                        ? strippedText
+                        : RemovePrefix(line, "Text:");
                     if (!string.IsNullOrEmpty(contentAfterColon))
                     {
                         passageLines.Add(contentAfterColon);
@@ -840,16 +970,25 @@ namespace LyraSAT.Services
                     isReadingPassage = false;
                     pendingOption = null;
 
-                    if (!string.IsNullOrEmpty(questionHeadingRest))
+                    if (TryStripQuestionHeadingFromHtml(line, out string htmlHeadingRest))
                     {
-                        questionLines.Add(questionHeadingRest);
+                        if (!string.IsNullOrEmpty(htmlHeadingRest))
+                        {
+                            questionLines.Add(htmlHeadingRest);
+                        }
                     }
-
-                    // Đoạn mở đầu câu có thể kèm ảnh (đồ thị) ngay sau chữ "Question 6.".
-                    // Nếu chỉ lấy phần chữ thì ảnh trong đoạn đó bị mất.
-                    foreach (Match image in Regex.Matches(line, "<img[^>]*>"))
+                    else
                     {
-                        questionLines.Add(image.Value);
+                        if (!string.IsNullOrEmpty(questionHeadingRest))
+                        {
+                            questionLines.Add(questionHeadingRest);
+                        }
+
+                        // Đoạn mở đầu câu có thể kèm ảnh (đồ thị) ngay trước chữ "Question 6.".
+                        foreach (Match image in ImgTagRegex.Matches(line))
+                        {
+                            questionLines.Add(image.Value);
+                        }
                     }
                 }
                 else if (currentQ != null)
@@ -1168,10 +1307,18 @@ namespace LyraSAT.Services
                 if (string.IsNullOrWhiteSpace(text)) text = StripHtml(q.OptionC ?? "");
                 if (string.IsNullOrWhiteSpace(text)) text = StripHtml(q.OptionD ?? "");
             }
-            text = Regex.Replace(text, @"\s+", " ").Trim();
+            text = MultiWhitespaceRegex.Replace(text, " ").Trim();
             if (text.Length > maxLength) text = text.Substring(0, maxLength - 3).TrimEnd() + "...";
             return text;
         }
+
+        private static readonly Regex[] ExactOptionLabels =
+        {
+            new(@"^A\s*[:.)]\s*", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+            new(@"^B\s*[:.)]\s*", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+            new(@"^C\s*[:.)]\s*", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+            new(@"^D\s*[:.)]\s*", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+        };
 
         /// <summary>
         /// Bỏ nhãn chữ cái bị lặp ở đầu đáp án, chỉ khi nhãn đó trùng đúng chữ cái của ô
@@ -1182,7 +1329,8 @@ namespace LyraSAT.Services
         {
             var text = (raw ?? string.Empty).Trim();
             char expectedUpper = char.ToUpperInvariant(expected);
-            var label = new Regex($@"^{expected}\s*[:.)]\s*", RegexOptions.IgnoreCase);
+            int idx = expectedUpper - 'A';
+            var label = idx >= 0 && idx < ExactOptionLabels.Length ? ExactOptionLabels[idx] : OptionLabel;
 
             for (int guard = 0; guard < 4; guard++)
             {
@@ -1211,18 +1359,21 @@ namespace LyraSAT.Services
         }
 
         /// <summary>
-        /// Tách nhãn đáp án (kèm bullet nếu có) khỏi dòng HTML mà vẫn giữ nguyên toàn bộ thẻ
-        /// phía sau như &lt;img&gt;, &lt;span class='math-inline'&gt; hoặc &lt;strong&gt;.
+        /// Thu thập các ký tự hiển thị đầu dòng trước khi gặp thẻ chặn (&lt;img&gt;, &lt;span&gt;, &lt;div&gt;, &lt;table&gt;, &lt;br&gt;)
+        /// kèm vị trí trong chuỗi HTML gốc để cắt tiền tố mà không phá thẻ định dạng.
         /// </summary>
-        private static bool TryStripOptionPrefixFromHtml(string htmlLine, out char optKey, out string content)
+        private static bool TryCollectLeadingVisibleSpans(
+            string htmlLine,
+            int maxChars,
+            out string visible,
+            out List<(int start, int end, char ch)> spans)
         {
-            optKey = '\0';
-            content = string.Empty;
+            spans = new List<(int start, int end, char ch)>(maxChars);
+            visible = string.Empty;
             if (string.IsNullOrEmpty(htmlLine)) return false;
 
-            var spans = new List<(int start, int end, char ch)>(32);
             int i = 0;
-            while (i < htmlLine.Length && spans.Count < 32)
+            while (i < htmlLine.Length && spans.Count < maxChars)
             {
                 if (htmlLine[i] == '<')
                 {
@@ -1247,16 +1398,18 @@ namespace LyraSAT.Services
             }
 
             if (spans.Count == 0) return false;
+            visible = new string(spans.Select(s => s.ch).ToArray());
+            return true;
+        }
 
-            var visible = new string(spans.Select(s => s.ch).ToArray());
-            var bulletMatch = BulletPrefix.Match(visible);
-            int offset = bulletMatch.Success ? bulletMatch.Length : 0;
-
-            var labelMatch = OptionLabel.Match(visible.Substring(offset));
-            if (!labelMatch.Success) return false;
-
-            optKey = char.ToUpperInvariant(labelMatch.Groups[1].Value[0]);
-            int visibleCut = offset + labelMatch.Length;
+        /// <summary>
+        /// Cắt chuỗi HTML sau vị trí visibleCut và mở lại những thẻ định dạng chưa đóng ở vùng bị cắt.
+        /// </summary>
+        private static string SliceHtmlAfterVisibleOffset(
+            string htmlLine,
+            List<(int start, int end, char ch)> spans,
+            int visibleCut)
+        {
             int cutPos = visibleCut > 0 ? spans[visibleCut - 1].end : 0;
 
             var openTags = new Stack<string>();
@@ -1308,7 +1461,51 @@ namespace LyraSAT.Services
             }
 
             var prefix = openTags.Count > 0 ? string.Concat(openTags.Reverse()) : string.Empty;
-            content = (prefix + htmlLine.Substring(cutPos)).Trim();
+            return (prefix + htmlLine.Substring(cutPos)).Trim();
+        }
+
+        /// <summary>
+        /// Tách nhãn đáp án (kèm bullet nếu có) khỏi dòng HTML mà vẫn giữ nguyên toàn bộ thẻ
+        /// phía sau như &lt;img&gt;, &lt;span class='math-inline'&gt; hoặc &lt;strong&gt;.
+        /// </summary>
+        private static bool TryStripOptionPrefixFromHtml(string htmlLine, out char optKey, out string content)
+        {
+            optKey = '\0';
+            content = string.Empty;
+            if (!TryCollectLeadingVisibleSpans(htmlLine, 32, out var visible, out var spans)) return false;
+
+            var bulletMatch = BulletPrefix.Match(visible);
+            int offset = bulletMatch.Success ? bulletMatch.Length : 0;
+
+            var labelMatch = OptionLabel.Match(visible.Substring(offset));
+            if (!labelMatch.Success) return false;
+
+            optKey = char.ToUpperInvariant(labelMatch.Groups[1].Value[0]);
+            content = SliceHtmlAfterVisibleOffset(htmlLine, spans, offset + labelMatch.Length);
+            return true;
+        }
+
+        private static bool TryStripTextPrefixFromHtml(string htmlLine, out string content)
+        {
+            content = string.Empty;
+            if (!TryCollectLeadingVisibleSpans(htmlLine, 32, out var visible, out var spans)) return false;
+
+            var match = TextPrefix.Match(visible);
+            if (!match.Success) return false;
+
+            content = SliceHtmlAfterVisibleOffset(htmlLine, spans, match.Length);
+            return true;
+        }
+
+        private static bool TryStripQuestionHeadingFromHtml(string htmlLine, out string rest)
+        {
+            rest = string.Empty;
+            if (!TryCollectLeadingVisibleSpans(htmlLine, 48, out var visible, out var spans)) return false;
+
+            var match = QuestionHeadingPrefix.Match(visible);
+            if (!match.Success) return false;
+
+            rest = SliceHtmlAfterVisibleOffset(htmlLine, spans, match.Length);
             return true;
         }
 
@@ -1455,6 +1652,43 @@ namespace LyraSAT.Services
         };
 
         /// <summary>
+        /// Khôi phục các công thức từng bị lưu kèm thẻ HTML bị escape thành \lt em\gt...\lt /em\gt
+        /// hoặc \lt sup\gt...\lt /sup\gt (dữ liệu đã upload trước khi sửa WrapPlainMathLine).
+        /// </summary>
+        private static string RepairCorruptedMathTags(string html)
+        {
+            if (string.IsNullOrEmpty(html) || !html.Contains("\\lt", StringComparison.Ordinal))
+            {
+                return html;
+            }
+
+            return MathSpanContainerRegex.Replace(html, m =>
+            {
+                var inner = m.Groups["inner"].Value;
+                if (!inner.Contains("\\lt", StringComparison.Ordinal)) return m.Value;
+
+                var tag = m.Groups["tag"].Value;
+                var cls = m.Groups["cls"].Value;
+
+                inner = CorruptedSupRegex.Replace(inner, "^{$1}");
+                inner = CorruptedSubRegex.Replace(inner, "_{$1}");
+                inner = CorruptedFormattingTagRegex.Replace(inner, match =>
+                {
+                    var isClose = match.Groups[1].Success && match.Groups[1].Value == "/";
+                    var name = match.Groups[2].Value.ToLowerInvariant();
+                    if (name.Length > 1 || isClose) return string.Empty;
+
+                    return inner.Contains($"\\lt /{name}\\gt", StringComparison.OrdinalIgnoreCase)
+                        ? string.Empty
+                        : match.Value;
+                });
+
+                inner = MultiWhitespaceRegex.Replace(inner, " ").Trim();
+                return $"<{tag} class='{cls}'>{inner}</{tag}>";
+            });
+        }
+
+        /// <summary>
         /// Giáo viên thường gõ công thức bằng chữ: 48(2)^(6x), √(4r - 7), 38/7.
         /// Hàm này đổi sang LaTeX và bọc span.math-inline để frontend vẽ bằng KaTeX,
         /// kể cả khi đề đã được tải lên từ trước (gọi lúc đọc đề).
@@ -1463,7 +1697,10 @@ namespace LyraSAT.Services
         {
             var text = (value ?? string.Empty).Trim();
             if (text.Length == 0) return text;
-            if (text.Contains("math-inline") || text.Contains("math-block")) return text;
+            if (text.Contains("math-inline") || text.Contains("math-block"))
+            {
+                return RepairCorruptedMathTags(text);
+            }
 
             // Nội dung nhiều dòng (hệ phương trình, công thức riêng một dòng rồi mới tới câu văn):
             // xử lý từng dòng, giữ nguyên thẻ xuống dòng.
@@ -1482,17 +1719,78 @@ namespace LyraSAT.Services
         {
             var text = NormalizeMathEntities(value.Trim());
             if (text.Length == 0) return value;
-            if (text.Contains("math-inline") || text.Contains("math-block")) return value;
+            if (text.Contains("math-inline") || text.Contains("math-block"))
+            {
+                return RepairCorruptedMathTags(text);
+            }
 
-            // Đã là LaTeX gõ tay.
-            if (Regex.IsMatch(text, @"\\[a-zA-Z]{2,}|\^\{|_\{"))
-                return $"<span class='math-inline'>{WebUtility.HtmlEncode(text)}</span>";
+            if (TryExtractWholeLineMathCandidate(text, out var candidate))
+            {
+                // Chỉ coi cả dòng là LaTeX gõ tay nếu không có chữ câu văn đi kèm (trừ \text{...}).
+                if (LatexCommandRegex.IsMatch(candidate) && IsPureManualLatex(candidate))
+                {
+                    return $"<span class='math-inline'>{WebUtility.HtmlEncode(candidate)}</span>";
+                }
 
-            if (IsPlainMathText(text))
-                return $"<span class='math-inline'>{WebUtility.HtmlEncode(PlainTextToLatex(text))}</span>";
+                if (IsPlainMathText(candidate))
+                {
+                    return $"<span class='math-inline'>{WebUtility.HtmlEncode(PlainTextToLatex(candidate))}</span>";
+                }
+            }
 
             // Công thức nằm giữa câu văn: "The function f is defined by f(x) = (8x + 4) / (7p), ..."
             return WrapInlinePlainMath(text);
+        }
+
+        /// <summary>
+        /// Tách text công thức từ một dòng HTML chỉ gồm thẻ định dạng (em, strong, sup, sub...)
+        /// để <em>x</em> = 2 hay 5y<sup>2</sup> + 7 không biến thẻ HTML thành chữ \lt em\gt.
+        /// </summary>
+        private static bool TryExtractWholeLineMathCandidate(string htmlLine, out string candidate)
+        {
+            candidate = string.Empty;
+            if (BlockOrMediaTagRegex.IsMatch(htmlLine)) return false;
+
+            if (!htmlLine.Contains('<'))
+            {
+                candidate = WebUtility.HtmlDecode(htmlLine).Trim();
+                return candidate.Length > 0;
+            }
+
+            foreach (Match tagMatch in AnyHtmlTagNameRegex.Matches(htmlLine))
+            {
+                var tagName = tagMatch.Groups[1].Value;
+                if (!tagName.Equals("em", StringComparison.OrdinalIgnoreCase) &&
+                    !tagName.Equals("i", StringComparison.OrdinalIgnoreCase) &&
+                    !tagName.Equals("strong", StringComparison.OrdinalIgnoreCase) &&
+                    !tagName.Equals("b", StringComparison.OrdinalIgnoreCase) &&
+                    !tagName.Equals("u", StringComparison.OrdinalIgnoreCase) &&
+                    !tagName.Equals("sup", StringComparison.OrdinalIgnoreCase) &&
+                    !tagName.Equals("sub", StringComparison.OrdinalIgnoreCase) &&
+                    !tagName.Equals("span", StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+            }
+
+            var stripped = InlineFormattingTagRegex.Replace(htmlLine, string.Empty);
+            stripped = SupTagRegex.Replace(stripped, m => $"^{{{m.Groups[1].Value}}}");
+            stripped = SubTagRegex.Replace(stripped, m => $"_{{{m.Groups[1].Value}}}");
+
+            if (stripped.Contains('<') || stripped.Contains('>')) return false;
+
+            candidate = WebUtility.HtmlDecode(stripped).Trim();
+            return candidate.Length > 0;
+        }
+
+        private static bool IsPureManualLatex(string candidate)
+        {
+            if (candidate.Length > 500) return false;
+            var withoutText = KnownLatexTextBlockRegex.Replace(candidate, string.Empty);
+            if (withoutText.Any(ch => ch > 0x7F && !AllowedMathSymbols.Contains(ch))) return false;
+            var withoutCommands = LatexCommandRegex.Replace(withoutText, " ");
+            var withoutFunctions = MathFunctionNameRegex.Replace(withoutCommands, string.Empty);
+            return !MathWordsRegex.IsMatch(withoutFunctions);
         }
 
         private static readonly Regex NumericEntityRegex = new(
@@ -1556,6 +1854,8 @@ namespace LyraSAT.Services
             });
         }
 
+        private const string AllowedMathSymbols = "√²³⁴⁵⁶⁷⁸⁹⁰⁻⁺₀₁₂₃₄₅₆₇₈₉π∞·×÷±≠≤≥–—−°½⅓⅔¼¾⅕⅖⅗⅘⅙⅚⅛";
+
         private static bool IsPlainMathText(string text)
         {
             if (text.Length > 200) return false;
@@ -1563,23 +1863,47 @@ namespace LyraSAT.Services
             // Hệ phương trình nhiều dòng để nguyên, bọc span sẽ làm mất xuống dòng.
             if (text.Contains('\n') || text.Contains('\r')) return false;
 
-            const string allowedSymbols = "√²³⁴⁵⁶⁷⁸⁹⁰⁻⁺₀₁₂₃₄₅₆₇₈₉π∞·×÷±≠≤≥–—−°½⅓⅔¼¾⅕⅖⅗⅘⅙⅚⅛";
-            if (text.Any(ch => ch > 0x7F && !allowedSymbols.Contains(ch))) return false;
+            if (text.Any(ch => ch > 0x7F && !AllowedMathSymbols.Contains(ch))) return false;
+            if (OrdinalSupRegex.IsMatch(text)) return false;
 
-            if (!Regex.IsMatch(text, @"[\^√=]") && !Regex.IsMatch(text, @"\d\s*/\s*\d")) return false;
+            if (!MathSignalRegex.IsMatch(text)) return false;
+            if (!AllowedPlainMathCharset.IsMatch(text)) return false;
 
-            if (!Regex.IsMatch(text, @"^[A-Za-z0-9\s\+\-\*/\^\(\)\[\]\{\}\.,\=<>√²³⁴⁵⁶⁷⁸⁹⁰⁻⁺₀₁₂₃₄₅₆₇₈₉π∞·×÷±≠≤≥–—−°½⅓⅔¼¾⅕⅖⅗⅘⅙⅚⅛\|]+$"))
-                return false;
+            var withoutFunctions = MathFunctionNameRegex.Replace(text, string.Empty);
+            return !MathWordsRegex.IsMatch(withoutFunctions);
+        }
 
-            var withoutFunctions = Regex.Replace(text, @"\b(?:sin|cos|tan|cot|log|ln|max|min)\b", "", RegexOptions.IgnoreCase);
-            return !Regex.IsMatch(withoutFunctions, @"[A-Za-z]{3,}");
+        private static string ConvertUnicodeSuperscripts(string raw)
+        {
+            var sb = new StringBuilder(raw.Length + 3);
+            sb.Append("^{");
+            foreach (var ch in raw)
+            {
+                if (ch == '⁻') sb.Append('-');
+                else if (ch == '⁺') sb.Append('+');
+                else if (SuperscriptDigits.TryGetValue(ch, out var digit)) sb.Append(digit);
+            }
+            sb.Append('}');
+            return sb.ToString();
+        }
+
+        private static string ConvertUnicodeSubscripts(string raw)
+        {
+            var sb = new StringBuilder(raw.Length + 3);
+            sb.Append("_{");
+            foreach (var ch in raw)
+            {
+                if (ch >= '₀' && ch <= '₉') sb.Append((char)('0' + (ch - '₀')));
+            }
+            sb.Append('}');
+            return sb.ToString();
         }
 
         private static string PlainTextToLatex(string text)
         {
             var latex = text.Trim();
 
-            latex = Regex.Replace(latex, "[–—−]", "-");
+            latex = DashRegex.Replace(latex, "-");
             latex = latex.Replace("×", "\\times ").Replace("÷", "\\div ").Replace("·", "\\cdot ")
                 .Replace("±", "\\pm ").Replace("∞", "\\infty ").Replace("π", "\\pi ")
                 .Replace("≠", "\\neq ").Replace("≤", "\\le ").Replace("≥", "\\ge ");
@@ -1587,31 +1911,31 @@ namespace LyraSAT.Services
 
             foreach (var pair in VulgarFractions) latex = latex.Replace(pair.Key.ToString(), pair.Value);
 
-            latex = Regex.Replace(latex, "[⁰¹²³⁴⁵⁶⁷⁸⁹]+", match =>
-                "^{" + string.Concat(match.Value.Select(ch => SuperscriptDigits[ch])) + "}");
+            latex = UnicodeSupRegex.Replace(latex, match => ConvertUnicodeSuperscripts(match.Value));
+            latex = UnicodeSubRegex.Replace(latex, match => ConvertUnicodeSubscripts(match.Value));
 
-            latex = Regex.Replace(latex, @"√\s*\(([^()]*)\)", @"\sqrt{$1}");
-            latex = Regex.Replace(latex, @"√\s*([A-Za-z0-9.]+)", @"\sqrt{$1}");
+            latex = SqrtParenRegex.Replace(latex, @"\sqrt{$1}");
+            latex = SqrtAtomRegex.Replace(latex, @"\sqrt{$1}");
 
-            latex = Regex.Replace(latex, @"\^\[([^\]]*)\]", "^{$1}");
-            latex = Regex.Replace(latex, @"\^\(([^()]*)\)", "^{$1}");
-            latex = Regex.Replace(latex, @"\^\{([^{}]*)\}", "^{$1}");
-            latex = Regex.Replace(latex, @"\^([A-Za-z0-9.]+)", "^{$1}");
+            latex = CaretBracketRegex.Replace(latex, "^{$1}");
+            latex = CaretParenRegex.Replace(latex, "^{$1}");
+            latex = CaretBracedRegex.Replace(latex, "^{$1}");
+            latex = CaretAtomRegex.Replace(latex, "^{$1}");
 
-            latex = Regex.Replace(latex, @"_([A-Za-z0-9]+)", "_{$1}");
+            latex = SubAtomRegex.Replace(latex, "_{$1}");
 
-            latex = Regex.Replace(latex, @"\(([^()]*)\)\s*/\s*\(([^()]*)\)", @"\frac{$1}{$2}");
-            latex = Regex.Replace(latex, @"([A-Za-z]\([^()]*\)[A-Za-z0-9]*)\s*/\s*\(([^()]*)\)", @"\frac{$1}{$2}");
-            latex = Regex.Replace(latex, @"(?<![\w.])(\d+(?:\.\d+)?)\s*/\s*(\d+(?:\.\d+)?)(?![\w.])", @"\frac{$1}{$2}");
-            latex = Regex.Replace(latex, @"([A-Za-z](?:\^\{[^{}]*\})?)\s*/\s*(\d+|[A-Za-z])", @"\frac{$1}{$2}");
-            latex = Regex.Replace(latex, @"\(\\frac\{([^{}]*)\}\{([^{}]*)\}\)", @"\frac{$1}{$2}");
-            latex = Regex.Replace(latex, @"(\\frac\{[^{}]*\}\{[^{}]*\})\.\s*", @"$1\cdot ");
+            latex = FracParenParenRegex.Replace(latex, @"\frac{$1}{$2}");
+            latex = FracFuncParenRegex.Replace(latex, @"\frac{$1}{$2}");
+            latex = FracNumNumRegex.Replace(latex, @"\frac{$1}{$2}");
+            latex = FracAtomRegex.Replace(latex, @"\frac{$1}{$2}");
+            latex = ParenFracRegex.Replace(latex, @"\frac{$1}{$2}");
+            latex = FracDotRegex.Replace(latex, @"$1\cdot ");
 
             // '<' '>' phải đổi sang lệnh LaTeX để bộ lọc HTML không hiểu nhầm là thẻ.
             latex = latex.Replace("<", "\\lt ").Replace(">", "\\gt ");
 
-            latex = Regex.Replace(latex, @"[%&#$]", match => "\\" + match.Value);
-            latex = latex.Replace("_", "\\_");
+            latex = SpecialMathEscapeRegex.Replace(latex, match => "\\" + match.Value);
+            latex = StandaloneUnderscoreRegex.Replace(latex, "\\_");
 
             return latex;
         }
@@ -1733,6 +2057,8 @@ namespace LyraSAT.Services
                 if (!string.IsNullOrEmpty(text))
                 {
                     var encoded = WebUtility.HtmlEncode(text).Replace("\r\n", "<br>").Replace("\n", "<br>");
+                    if (run.Subscript == VerticalAlign.SUPERSCRIPT) encoded = $"<sup>{encoded}</sup>";
+                    else if (run.Subscript == VerticalAlign.SUBSCRIPT) encoded = $"<sub>{encoded}</sub>";
                     if (run.IsBold) encoded = $"<strong>{encoded}</strong>";
                     if (run.IsItalic) encoded = $"<em>{encoded}</em>";
                     if (HasUnderline(run)) encoded = $"<u>{encoded}</u>";
@@ -1783,23 +2109,12 @@ namespace LyraSAT.Services
             };
         }
 
-        private static bool HasUnderline(XWPFRun run)
-        {
-            var runProperties = run.GetCTR()
-                .GetType()
-                .GetProperty("rPr")?
-                .GetValue(run.GetCTR());
-
-            return runProperties?
-                .GetType()
-                .GetProperty("u")?
-                .GetValue(runProperties) != null;
-        }
+        private static bool HasUnderline(XWPFRun run) => run.Underline != UnderlinePatterns.None;
 
         private static string StripHtml(string value)
         {
-            var withLineBreaks = Regex.Replace(value, "<br\\s*/?>", "\n", RegexOptions.IgnoreCase);
-            return WebUtility.HtmlDecode(Regex.Replace(withLineBreaks, "<[^>]+>", string.Empty));
+            var withLineBreaks = LineBreakTagRegex.Replace(value, "\n");
+            return WebUtility.HtmlDecode(HtmlTagRegex.Replace(withLineBreaks, string.Empty));
         }
 
         private static string RemovePrefix(string html, string prefix)

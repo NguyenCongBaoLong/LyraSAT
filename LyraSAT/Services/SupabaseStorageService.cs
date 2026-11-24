@@ -5,6 +5,8 @@ namespace LyraSAT.Services
     public interface ISupabaseStorageService
     {
         Task<string> UploadAsync(byte[] content, string objectPath, string contentType, CancellationToken cancellationToken = default);
+        Task<bool> DeleteAsync(string objectPath, CancellationToken cancellationToken = default);
+        string? TryExtractObjectPath(string? fileUrl);
     }
 
     public sealed class SupabaseStorageService : ISupabaseStorageService
@@ -60,6 +62,47 @@ namespace LyraSAT.Services
             }
 
             return $"{_supabaseUrl}/storage/v1/object/public/{BucketName}/{objectPath}";
+        }
+
+        public string? TryExtractObjectPath(string? fileUrl)
+        {
+            if (string.IsNullOrWhiteSpace(fileUrl)) return null;
+            var marker = $"/storage/v1/object/public/{BucketName}/";
+            int idx = fileUrl.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+            if (idx < 0) return null;
+            var path = fileUrl[(idx + marker.Length)..].TrimStart('/');
+            return path.Length == 0 ? null : path;
+        }
+
+        public async Task<bool> DeleteAsync(string objectPath, CancellationToken cancellationToken = default)
+        {
+            var normalized = (objectPath ?? string.Empty).TrimStart('/');
+            if (normalized.Length == 0) return false;
+
+            try
+            {
+                using var request = new HttpRequestMessage(
+                    HttpMethod.Delete,
+                    $"{_supabaseUrl}/storage/v1/object/{BucketName}/{normalized}");
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _serviceRoleKey);
+                request.Headers.Add("apikey", _serviceRoleKey);
+
+                using var response = await _httpClient.SendAsync(request, cancellationToken);
+                if (!response.IsSuccessStatusCode && response.StatusCode != System.Net.HttpStatusCode.NotFound)
+                {
+                    _logger.LogWarning(
+                        "Supabase Storage delete returned {Status} for {Path}",
+                        (int)response.StatusCode,
+                        normalized);
+                    return false;
+                }
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Supabase Storage delete failed for {Path}", normalized);
+                return false;
+            }
         }
     }
 }

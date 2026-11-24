@@ -28,7 +28,7 @@ namespace LyraSAT.Controllers
                 bool exists = await _context.ClassTeachers.AnyAsync(ct => ct.ClassCode.ToLower() == classCode.Trim().ToLower() && ct.TeacherId == teacherId);
                 if (!exists)
                 {
-                    _context.ClassTeachers.Add(new ClassTeacher { ClassCode = classCode, TeacherId = teacherId });
+                    _context.ClassTeachers.Add(new ClassTeacher { ClassCode = targetClass.ClassCode, TeacherId = teacherId });
                 }
 
                 targetClass.TeacherId = teacherId;
@@ -131,15 +131,19 @@ namespace LyraSAT.Controllers
                 var classCodes = classes.Select(c => ClassCodeHelper.Normalize(c.classCode).ToLower()).ToList();
                 var classTeachers = await _context.ClassTeachers
                     .AsNoTracking()
-                    .Where(ct => classCodes.Contains(ct.ClassCode.ToLower()))
-                    .Include(ct => ct.Teacher)
+                    .Where(ct => classCodes.Contains(ct.ClassCode.ToLower()) && ct.Teacher != null)
+                    .Select(ct => new
+                    {
+                        ct.ClassCode,
+                        Teacher = new { id = ct.Teacher!.Id, fullName = ct.Teacher.FullName, email = ct.Teacher.Email }
+                    })
                     .ToListAsync();
 
                 var result = classes.Select(c =>
                 {
                     var teachersOfClass = classTeachers
-                        .Where(ct => ClassCodeHelper.SameCode(ct.ClassCode, c.classCode) && ct.Teacher != null)
-                        .Select(ct => new { id = ct.Teacher!.Id, fullName = ct.Teacher.FullName, email = ct.Teacher.Email })
+                        .Where(ct => ClassCodeHelper.SameCode(ct.ClassCode, c.classCode))
+                        .Select(ct => ct.Teacher)
                         .ToList();
 
                     if (!teachersOfClass.Any() && c.teacherId.HasValue && c.teacherName != "Chưa phân công")
@@ -190,15 +194,19 @@ namespace LyraSAT.Controllers
             var classCodes = paged.Items.Select(c => ClassCodeHelper.Normalize(c.classCode).ToLower()).ToList();
             var classTeachers = await _context.ClassTeachers
                 .AsNoTracking()
-                .Where(ct => classCodes.Contains(ct.ClassCode.ToLower()))
-                .Include(ct => ct.Teacher)
+                .Where(ct => classCodes.Contains(ct.ClassCode.ToLower()) && ct.Teacher != null)
+                .Select(ct => new
+                {
+                    ct.ClassCode,
+                    Teacher = new { id = ct.Teacher!.Id, fullName = ct.Teacher.FullName, email = ct.Teacher.Email }
+                })
                 .ToListAsync();
 
             var mappedItems = paged.Items.Select(c =>
             {
                 var teachersOfClass = classTeachers
-                    .Where(ct => ClassCodeHelper.SameCode(ct.ClassCode, c.classCode) && ct.Teacher != null)
-                    .Select(ct => new { id = ct.Teacher!.Id, fullName = ct.Teacher.FullName, email = ct.Teacher.Email })
+                    .Where(ct => ClassCodeHelper.SameCode(ct.ClassCode, c.classCode))
+                    .Select(ct => ct.Teacher)
                     .ToList();
 
                 if (!teachersOfClass.Any() && c.teacherId.HasValue && c.teacherName != "Chưa phân công")
@@ -331,7 +339,7 @@ namespace LyraSAT.Controllers
                 {
                     _context.ClassTeachers.Add(new ClassTeacher
                     {
-                        ClassCode = classCode,
+                        ClassCode = targetClass.ClassCode,
                         TeacherId = dto.TeacherId.Value,
                         AssignedAt = DateTime.UtcNow
                     });
@@ -411,6 +419,15 @@ namespace LyraSAT.Controllers
                 if (classTeachers.Any())
                 {
                     _context.ClassTeachers.RemoveRange(classTeachers);
+                }
+
+                // Xóa mã lớp cũ trên bảng Users để không còn mã lớp mồ côi
+                var legacyStudents = await _context.Users
+                    .Where(u => u.ClassCode != null && u.ClassCode.ToLower() == lower)
+                    .ToListAsync();
+                foreach (var student in legacyStudents)
+                {
+                    student.ClassCode = null;
                 }
 
                 _context.Classes.Remove(targetClass);

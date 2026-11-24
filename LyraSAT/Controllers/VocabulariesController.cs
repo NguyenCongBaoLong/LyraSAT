@@ -143,6 +143,7 @@ namespace LyraSAT.Controllers
             try
             {
                 var normalizedClassCode = ClassCodeHelper.Normalize(classCode);
+                string? targetClassCode = null;
                 if (normalizedClassCode.Length > 0)
                 {
                     var targetClass = await ClassCodeHelper.FindClassAsync(_context, normalizedClassCode);
@@ -150,13 +151,13 @@ namespace LyraSAT.Controllers
                     {
                         return BadRequest(new { message = $"Mã lớp '{normalizedClassCode}' không tồn tại. Vui lòng kiểm tra lại." });
                     }
-                    normalizedClassCode = targetClass.ClassCode;
+                    targetClassCode = targetClass.ClassCode;
                 }
 
                 using var stream = file.OpenReadStream();
-                var document = new XWPFDocument(stream);
+                using var document = new XWPFDocument(stream);
 
-                var vocabList = VocabularyDocumentParser.Parse(document, normalizedClassCode, seriesName);
+                var vocabList = VocabularyDocumentParser.Parse(document, targetClassCode, seriesName);
 
                 if (vocabList.Count == 0)
                 {

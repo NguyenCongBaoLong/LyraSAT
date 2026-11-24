@@ -118,6 +118,7 @@ namespace LyraSAT.Controllers
             try
             {
                 var query = _context.Users
+                    .AsNoTracking()
                     .Where(u => u.Role == "Student");
 
                 if (!string.IsNullOrWhiteSpace(search))
@@ -191,6 +192,20 @@ namespace LyraSAT.Controllers
                 if (user == null) return NotFound(new { message = "Không tìm thấy người dùng." });
 
                 if (user.Role == "Admin") return BadRequest(new { message = "Không thể xóa tài khoản Quản trị viên." });
+
+                await using var tx = await _context.Database.BeginTransactionAsync();
+
+                // Nếu là giáo viên chính/phụ trách lớp: gỡ khỏi Classes.TeacherId (FK NoAction) và ClassTeachers
+                var ledClasses = await _context.Classes.Where(c => c.TeacherId == id).ToListAsync();
+                foreach (var c in ledClasses)
+                {
+                    c.TeacherId = null;
+                }
+                var teacherLinks = await _context.ClassTeachers.Where(ct => ct.TeacherId == id).ToListAsync();
+                if (teacherLinks.Any())
+                {
+                    _context.ClassTeachers.RemoveRange(teacherLinks);
+                }
 
                 // Dọn dẹp bài nộp và chi tiết bài nộp của học sinh
                 var submissions = await _context.Submissions.Where(s => s.StudentId == id).ToListAsync();
@@ -267,6 +282,7 @@ namespace LyraSAT.Controllers
 
                 _context.Users.Remove(user);
                 await _context.SaveChangesAsync();
+                await tx.CommitAsync();
 
                 return Ok(new { message = $"Đã xóa vĩnh viễn tài khoản {user.FullName} ({user.Email}) thành công!" });
             }

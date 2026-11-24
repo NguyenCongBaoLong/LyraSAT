@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace LyraSAT.Services
 {
@@ -13,9 +14,12 @@ namespace LyraSAT.Services
         public const string MultipleChoice = "MultipleChoice";
         public const string FreeResponse = "FreeResponse";
 
-        // Sai số tuyệt đối khi so hai số thực: đủ rộng để chấp nhận .333 cho 1/3,
+        // Sai số tuyệt đối khi so hai số thực: đủ rộng để chấp nhận làm tròn chuẩn,
         // đủ hẹp để không chấm đúng 2.5 khi học sinh gõ 2.501.
         private const double Tolerance = 5e-4;
+
+        private static readonly Regex UsThousandsRegex = new(
+            @"^[+-]?\d{1,3}(,\d{3})+(\.\d+)?$", RegexOptions.Compiled);
 
         public static bool IsFreeResponse(string? questionType) =>
             string.Equals((questionType ?? "").Trim(), FreeResponse, StringComparison.OrdinalIgnoreCase);
@@ -57,7 +61,7 @@ namespace LyraSAT.Services
             if (TryParseNumber(student, out var studentNumber) &&
                 TryParseNumber(accepted, out var acceptedNumber))
             {
-                return NumbersEqual(studentNumber, acceptedNumber);
+                return NumbersEqual(studentNumber, acceptedNumber, student, accepted);
             }
 
             return string.Equals(
@@ -66,12 +70,14 @@ namespace LyraSAT.Services
                 StringComparison.OrdinalIgnoreCase);
         }
 
-        /// <summary>Chuẩn hoá chuỗi số: bỏ khoảng trắng, đổi dấu trừ Unicode và dấu phẩy thập phân.</summary>
+        /// <summary>Chuẩn hoá chuỗi số: bỏ khoảng trắng, $, đổi dấu trừ Unicode và dấu phẩy thập phân/nghìn.</summary>
         public static string NormalizeNumberText(string? raw)
         {
             var text = (raw ?? string.Empty).Trim()
-                .Replace("\u2212", "-")   // dấu trừ dài
-                .Replace("\u2013", "-")   // gạch ngang en dash
+                .Replace("\u2212", "-")   // dấu trừ toán học
+                .Replace("\u2013", "-")   // en dash
+                .Replace("\u2014", "-")   // em dash
+                .Replace("\u2044", "/")   // fraction slash
                 .Replace("\u00A0", " ");  // khoảng trắng không ngắt
 
             var plain = new StringBuilder(text.Length);
@@ -82,14 +88,24 @@ namespace LyraSAT.Services
 
             var normalized = plain.ToString();
 
-            // "1,5" là dấu phẩy thập phân; "1,234.5" kiểu Mỹ thì bỏ dấu phẩy phân cách nghìn.
+            // Học sinh có thể gõ "$54" hoặc "-$54"
+            if (normalized.StartsWith("-$", StringComparison.Ordinal) || normalized.StartsWith("+$", StringComparison.Ordinal))
+            {
+                normalized = normalized[0] + normalized[2..];
+            }
+            else if (normalized.StartsWith('$'))
+            {
+                normalized = normalized[1..];
+            }
+
+            // "1,000" / "1,234.5" kiểu Mỹ thì bỏ dấu phẩy phân cách nghìn; "1,5" đổi sang dấu chấm.
             if (normalized.Contains(','))
             {
-                if (normalized.Contains('.'))
+                if (UsThousandsRegex.IsMatch(normalized) || normalized.Contains('.'))
                 {
                     normalized = normalized.Replace(",", string.Empty);
                 }
-                else
+                else if (normalized.Count(c => c == ',') == 1)
                 {
                     normalized = normalized.Replace(',', '.');
                 }
@@ -140,10 +156,40 @@ namespace LyraSAT.Services
                 out value);
         }
 
-        private static bool NumbersEqual(double a, double b)
+        private static int GetDecimalScale(string normalized)
         {
-            if (a.Equals(b)) return true;
-            return Math.Abs(a - b) <= Tolerance;
+            if (normalized.Contains('/')) return 0;
+            int dot = normalized.IndexOf('.');
+            if (dot < 0) return 0;
+            return normalized.Length - dot - 1;
+        }
+
+        private static bool NumbersEqual(double studentNumber, double acceptedNumber, string rawStudent, string rawAccepted)
+        {
+            if (studentNumber.Equals(acceptedNumber)) return true;
+            if (Math.Abs(studentNumber - acceptedNumber) <= Tolerance) return true;
+
+            // Quy tắc College Board SAT: với đáp án vô hạn tuần hoàn (2/3, 1/6...) hoặc >= 4 chữ số thập phân,
+            // chấp nhận học sinh cắt (truncate) hoặc làm tròn từ 3 chữ số thập phân trở lên (vd .666, .667, .166).
+            var normStudent = NormalizeNumberText(rawStudent);
+            var normAccepted = NormalizeNumberText(rawAccepted);
+            int studentScale = GetDecimalScale(normStudent);
+            int acceptedScale = GetDecimalScale(normAccepted);
+
+            if (studentScale >= 3 && studentScale <= 10 && (normAccepted.Contains('/') || acceptedScale >= 4))
+            {
+                double factor = Math.Pow(10, studentScale);
+                double sign = Math.Sign(acceptedNumber);
+                double truncated = Math.Truncate((acceptedNumber * factor) + sign * 1e-9) / factor;
+                double rounded = Math.Round(acceptedNumber, studentScale, MidpointRounding.AwayFromZero);
+
+                if (Math.Abs(studentNumber - truncated) < 1e-9 || Math.Abs(studentNumber - rounded) < 1e-9)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static string NormalizeText(string raw)

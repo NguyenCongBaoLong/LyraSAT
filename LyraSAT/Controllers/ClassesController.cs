@@ -381,16 +381,19 @@ namespace LyraSAT.Controllers
                 // Cập nhật Giáo viên chính mới
                 targetClass.TeacherId = req.NewLeadTeacherId;
 
-                // Đảm bảo cả người cũ và người mới đều có bản ghi trong ClassTeachers
-                bool oldInCt = await _context.ClassTeachers.AnyAsync(ct => ct.ClassCode.ToLower() == classCode.Trim().ToLower() && ct.TeacherId == req.RequestUserId);
-                if (!oldInCt && req.RequestUserId > 0)
+                // Đảm bảo giáo viên cũ (nếu không phải Admin) có bản ghi trong ClassTeachers
+                if (!isAdmin && req.RequestUserId > 0)
                 {
-                    _context.ClassTeachers.Add(new ClassTeacher
+                    bool oldInCt = await _context.ClassTeachers.AnyAsync(ct => ct.ClassCode.ToLower() == classCode.Trim().ToLower() && ct.TeacherId == req.RequestUserId);
+                    if (!oldInCt)
                     {
-                        ClassCode = targetClass.ClassCode,
-                        TeacherId = req.RequestUserId,
-                        AssignedAt = DateTime.UtcNow
-                    });
+                        _context.ClassTeachers.Add(new ClassTeacher
+                        {
+                            ClassCode = targetClass.ClassCode,
+                            TeacherId = req.RequestUserId,
+                            AssignedAt = DateTime.UtcNow
+                        });
+                    }
                 }
 
                 await _context.SaveChangesAsync();

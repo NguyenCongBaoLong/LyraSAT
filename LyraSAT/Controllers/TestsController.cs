@@ -129,8 +129,10 @@ namespace LyraSAT.Controllers
         public async Task<IActionResult> GetTestQuestions(int id)
         {
             var test = await _context.Tests
+                .AsNoTracking()
                 .Include(t => t.Questions)
                 .ThenInclude(q => q.Assets)
+                .AsSplitQuery()
                 .FirstOrDefaultAsync(t => t.Id == id);
 
             if (test == null) return NotFound(new { message = "Không tìm thấy bài test!" });
@@ -230,6 +232,16 @@ namespace LyraSAT.Controllers
                     return BadRequest(new { message = "Vui lòng chọn lớp học cho đề thi." });
                 }
 
+                var initialVideo = videoExplanationUrl?.Trim();
+                if (!string.IsNullOrEmpty(initialVideo))
+                {
+                    var videoErr = VideoLinkValidator.Validate(initialVideo);
+                    if (videoErr != null)
+                    {
+                        return BadRequest(new { message = videoErr });
+                    }
+                }
+
                 // Dùng đúng chuỗi mã lớp trong bảng Classes (tránh lệch hoa/thường giữa các bảng)
                 var targetClass = await ClassCodeHelper.FindClassAsync(_context, normalizedClassCode);
                 if (targetClass == null)
@@ -237,70 +249,31 @@ namespace LyraSAT.Controllers
                     return BadRequest(new { message = $"Mã lớp '{normalizedClassCode}' không tồn tại. Vui lòng chọn lại lớp." });
                 }
                 normalizedClassCode = targetClass.ClassCode;
-                // 1. Tạo bài test mới trong cơ sở dữ liệu
-                var newTest = new Test
-                {
-                    Title = title,
-                    ClassCode = normalizedClassCode,
-                    Duration = duration,
-                    TestType = testType,
-                    Deadline = deadline?.UtcDateTime,
-                    MaxAttempts = finalMaxAttempts,
-                    CreatedAt = DateTime.UtcNow,
-                    VideoExplanationUrl = videoExplanationUrl
-                };
 
-                _context.Tests.Add(newTest);
-                await _context.SaveChangesAsync(); // Lưu để lấy TestId tự tăng
-                createdTest = newTest;
-
-                // 2. Đọc file Word (.docx) bằng thư viện NPOI, hỗ trợ trích xuất cả Paragraph và Table
+                // 1. Đọc & kiểm tra file Word TRƯỚC khi ghi DB để file lỗi không tạo đề rác.
                 using var stream = file.OpenReadStream();
                 using var buffer = new MemoryStream();
                 await stream.CopyToAsync(buffer);
-
-                buffer.Position = 0;
                 var fileBytes = buffer.ToArray();
 
-                // Một số file .docx (Google Docs, WPS, add-in) có entry zip kiểu
-                // "stored + data descriptor" mà .NET không đọc được; ghi lại zip sạch trước.
-                fileBytes = SatWordTestParser.TryNormalizeDocx(fileBytes) ?? fileBytes;
+                using var document = OpenWordDocument(ref fileBytes);
 
-                // NPOI đóng stream sau khi đọc, nên giữ lại mảng byte để đọc thêm document.xml.
-                var document = new XWPFDocument(new MemoryStream(fileBytes));
-
-                // NPOI không đọc công thức Word (OMML) nên phải đọc thêm document.xml
-                // để dựng các đoạn có công thức; thiếu bước này đề Toán mất sạch công thức.
-                var paragraphMath = SatWordTestParser.ExtractParagraphMath(new MemoryStream(fileBytes));
-                var tableParagraphMath = SatWordTestParser.ExtractTableParagraphMath(new MemoryStream(fileBytes));
-
+                // NPOI không đọc công thức Word (OMML) nên đọc document.xml một lần để dựng cả body & table.
+                var (paragraphMath, tableParagraphMath) = SatWordTestParser.ExtractAllParagraphMath(new MemoryStream(fileBytes));
                 var extractedLines = SatWordTestParser.ExtractDocumentLines(document, paragraphMath, tableParagraphMath);
 
-                // 3. Bóc tách câu hỏi SAT
-                var questions = SatWordTestParser.Parse(extractedLines, newTest.Id, out var skippedQuestions);
-
-                // KIỂM TRA: Nếu không có câu hỏi hợp lệ -> Xóa bài test vừa tạo và báo lỗi
+                // 2. Bóc tách & soát lỗi câu hỏi SAT
+                var questions = SatWordTestParser.Parse(extractedLines, 0, out var skippedQuestions);
                 if (questions.Count == 0)
                 {
-                    _context.Tests.Remove(newTest);
-                    await _context.SaveChangesAsync();
                     return BadRequest(new { message = "File Word không đúng cấu trúc định dạng câu hỏi SAT (Thiếu các từ khóa Text:, Question:, hoặc các đáp án A, B, C, D)!" });
                 }
 
-                // KIỂM TRA: Không lưu đề nếu dữ liệu đáp án bị sai (thiếu đáp án, trùng nhau,
-                // còn dính nhãn chữ cái, hoặc không đọc được đáp án đúng). Thà báo để giáo viên
-                // sửa file còn hơn để học sinh làm đề có đáp án sai.
                 var optionIssues = SatWordTestParser.Validate(questions);
-
-                // Câu không đọc được cũng là lỗi phải báo: bỏ im lặng thì giáo viên tưởng
-                // đề đã lên đủ, trong khi số câu bị thiếu và thứ tự bị lệch.
                 optionIssues.InsertRange(0, skippedQuestions);
 
                 if (optionIssues.Count > 0)
                 {
-                    _context.Tests.Remove(newTest);
-                    await _context.SaveChangesAsync();
-
                     var preview = string.Join(" ", optionIssues.Take(5));
                     var more = optionIssues.Count > 5 ? $" (còn {optionIssues.Count - 5} lỗi khác)" : "";
                     return BadRequest(new
@@ -310,14 +283,27 @@ namespace LyraSAT.Controllers
                     });
                 }
 
-                _context.Questions.AddRange(questions);
+                // 3. Dữ liệu sạch -> tạo bài test + câu hỏi trong DB
+                var newTest = new Test
+                {
+                    Title = title,
+                    ClassCode = normalizedClassCode,
+                    Duration = duration,
+                    TestType = testType,
+                    Deadline = deadline?.UtcDateTime,
+                    MaxAttempts = finalMaxAttempts,
+                    CreatedAt = DateTime.UtcNow,
+                    VideoExplanationUrl = string.IsNullOrEmpty(initialVideo) ? null : initialVideo,
+                    Questions = questions
+                };
+
+                _context.Tests.Add(newTest);
                 await _context.SaveChangesAsync();
+                createdTest = newTest;
+
                 await ExtractAndPersistQuestionAssetsAsync(questions, newTest.Id);
 
-                // Nếu giáo viên dán link video ngay khi giao đề, đồng thời tạo luôn
-                // một dòng trong TestVideos để danh sách nhiều video thấy được ngay.
-                var initialVideo = videoExplanationUrl?.Trim();
-                if (!string.IsNullOrWhiteSpace(initialVideo))
+                if (!string.IsNullOrEmpty(initialVideo))
                 {
                     _context.TestVideos.Add(new LyraSAT.Models.TestVideo
                     {
@@ -377,13 +363,13 @@ namespace LyraSAT.Controllers
 
             var url = dto?.VideoExplanationUrl?.Trim() ?? string.Empty;
 
-            // Chỉ nhận link http(s) hoặc file đã upload nội bộ; chặn javascript:, data: ...
-            if (url.Length > 0 &&
-                !url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) &&
-                !url.StartsWith("https://", StringComparison.OrdinalIgnoreCase) &&
-                !url.StartsWith("/uploads/", StringComparison.OrdinalIgnoreCase))
+            if (url.Length > 0)
             {
-                return BadRequest(new { message = "Link video không hợp lệ. Chỉ nhận link http(s) hoặc file đã tải lên." });
+                var videoErr = VideoLinkValidator.Validate(url);
+                if (videoErr != null)
+                {
+                    return BadRequest(new { message = videoErr });
+                }
             }
 
             test.VideoExplanationUrl = url.Length == 0 ? null : url;
@@ -518,9 +504,11 @@ namespace LyraSAT.Controllers
             // Nạp entity rồi chiếu trong bộ nhớ để chuyển công thức gõ tay sang KaTeX
             // cho cả những đề đã tải lên trước đây.
             var test = await _context.Tests
+                .AsNoTracking()
                 .Include(t => t.Questions)
                 .ThenInclude(q => q.Assets)
                 .Include(t => t.Videos)
+                .AsSplitQuery()
                 .FirstOrDefaultAsync(t => t.Id == id);
 
             if (test == null) return NotFound(new { message = "Không tìm thấy bài test" });
@@ -676,12 +664,31 @@ namespace LyraSAT.Controllers
             }
         }
 
+        private static readonly Regex DataUriRegex = new(
+            @"data:(?<mime>image\/(?:png|jpeg|jpg|gif|webp|svg\+xml));base64,(?<data>[A-Za-z0-9+/=]+)",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static XWPFDocument OpenWordDocument(ref byte[] fileBytes)
+        {
+            try
+            {
+                return new XWPFDocument(new MemoryStream(fileBytes));
+            }
+            catch
+            {
+                // Fallback cho .docx kiểu "stored + data descriptor" (Google Docs, WPS, add-in)
+                var normalized = SatWordTestParser.TryNormalizeDocx(fileBytes);
+                if (normalized == null) throw;
+                fileBytes = normalized;
+                return new XWPFDocument(new MemoryStream(fileBytes));
+            }
+        }
+
         private async Task ExtractAndPersistQuestionAssetsAsync(IEnumerable<Question> questions, int testId)
         {
-            var dataUriPattern = new Regex(
-                "data:(?<mime>image\\/(?:png|jpeg|jpg|gif|webp));base64,(?<data>[A-Za-z0-9+/=]+)",
-                RegexOptions.Compiled | RegexOptions.IgnoreCase);
             var assetIndex = 0;
+            var pendingFields = new List<(Question Question, string Name, string Value, string Placement, MatchCollection Matches, int BaseUploadIdx, int MatchCount)>();
+            var uploads = new List<(byte[] Bytes, string ObjectPath, string MimeType, string FileName, string Placement, int QuestionId, int SortOrder)>();
 
             foreach (var question in questions)
             {
@@ -697,49 +704,87 @@ namespace LyraSAT.Controllers
 
                 foreach (var field in fields)
                 {
-                    if (string.IsNullOrEmpty(field.Value)) continue;
+                    if (string.IsNullOrEmpty(field.Value) || !field.Value.Contains("data:image/", StringComparison.OrdinalIgnoreCase))
+                        continue;
 
+                    var matches = DataUriRegex.Matches(field.Value);
+                    if (matches.Count == 0) continue;
+
+                    int baseIdx = uploads.Count;
                     var fieldAssetIndex = 0;
-                    var matches = dataUriPattern.Matches(field.Value);
-                    var replacedBuilder = new StringBuilder();
-                    var previousIndex = 0;
-
                     foreach (Match match in matches)
                     {
                         var mimeType = match.Groups["mime"].Value.ToLowerInvariant();
-                        var extension = mimeType is "image/jpeg" or "image/jpg" ? "jpg" : mimeType[6..];
+                        var extension = mimeType switch
+                        {
+                            "image/jpeg" or "image/jpg" => "jpg",
+                            "image/svg+xml" => "svg",
+                            _ => mimeType[6..]
+                        };
                         var fileName = $"question-{question.Id}-{field.Placement.ToLowerInvariant()}-{fieldAssetIndex++}.{extension}";
                         var bytes = Convert.FromBase64String(match.Groups["data"].Value);
                         var objectPath = $"tests/{testId}/{fileName}";
-                        var fileUrl = await _storage.UploadAsync(bytes, objectPath, mimeType);
-
-                        replacedBuilder.Append(field.Value, previousIndex, match.Index - previousIndex);
-                        replacedBuilder.Append(fileUrl);
-                        previousIndex = match.Index + match.Length;
-
-                        _context.QuestionAssets.Add(new QuestionAsset
-                        {
-                            QuestionId = question.Id,
-                            AssetType = "Image",
-                            FileUrl = fileUrl,
-                            FileName = fileName,
-                            MimeType = mimeType,
-                            AltText = "Hình minh họa",
-                            Placement = field.Placement,
-                            SortOrder = assetIndex++
-                        });
+                        uploads.Add((bytes, objectPath, mimeType, fileName, field.Placement, question.Id, assetIndex++));
                     }
 
-                    replacedBuilder.Append(field.Value, previousIndex, field.Value.Length - previousIndex);
-                    var replaced = replacedBuilder.ToString();
-
-                    if (field.Name == "PassageText") question.PassageText = replaced;
-                    else if (field.Name == "QuestionText") question.QuestionText = replaced;
-                    else if (field.Name == "OptionA") question.OptionA = replaced;
-                    else if (field.Name == "OptionB") question.OptionB = replaced;
-                    else if (field.Name == "OptionC") question.OptionC = replaced;
-                    else if (field.Name == "OptionD") question.OptionD = replaced;
+                    pendingFields.Add((question, field.Name, field.Value, field.Placement, matches, baseIdx, matches.Count));
                 }
+            }
+
+            if (uploads.Count == 0) return;
+
+            var uploadedUrls = new string[uploads.Count];
+            using var gate = new System.Threading.SemaphoreSlim(5);
+            await Task.WhenAll(uploads.Select(async (item, idx) =>
+            {
+                await gate.WaitAsync();
+                try
+                {
+                    uploadedUrls[idx] = await _storage.UploadAsync(item.Bytes, item.ObjectPath, item.MimeType);
+                }
+                finally
+                {
+                    gate.Release();
+                }
+            }));
+
+            foreach (var pf in pendingFields)
+            {
+                var replacedBuilder = new StringBuilder(pf.Value.Length);
+                var previousIndex = 0;
+                for (int i = 0; i < pf.MatchCount; i++)
+                {
+                    var match = pf.Matches[i];
+                    var uploadIdx = pf.BaseUploadIdx + i;
+                    var fileUrl = uploadedUrls[uploadIdx];
+                    var item = uploads[uploadIdx];
+
+                    replacedBuilder.Append(pf.Value, previousIndex, match.Index - previousIndex);
+                    replacedBuilder.Append(fileUrl);
+                    previousIndex = match.Index + match.Length;
+
+                    _context.QuestionAssets.Add(new QuestionAsset
+                    {
+                        QuestionId = item.QuestionId,
+                        AssetType = "Image",
+                        FileUrl = fileUrl,
+                        FileName = item.FileName,
+                        MimeType = item.MimeType,
+                        AltText = "Hình minh họa",
+                        Placement = item.Placement,
+                        SortOrder = item.SortOrder
+                    });
+                }
+
+                replacedBuilder.Append(pf.Value, previousIndex, pf.Value.Length - previousIndex);
+                var replaced = replacedBuilder.ToString();
+
+                if (pf.Name == "PassageText") pf.Question.PassageText = replaced;
+                else if (pf.Name == "QuestionText") pf.Question.QuestionText = replaced;
+                else if (pf.Name == "OptionA") pf.Question.OptionA = replaced;
+                else if (pf.Name == "OptionB") pf.Question.OptionB = replaced;
+                else if (pf.Name == "OptionC") pf.Question.OptionC = replaced;
+                else if (pf.Name == "OptionD") pf.Question.OptionD = replaced;
             }
 
             await _context.SaveChangesAsync();
@@ -766,15 +811,27 @@ namespace LyraSAT.Controllers
                     var user = await _context.Users.FindAsync(currentUserId);
                     if (user != null && user.Role != "Teacher" && user.Role != "Admin")
                     {
-                        return Forbid("Chỉ Giáo viên hoặc Quản trị viên mới được phép xóa bài test.");
+                        return StatusCode(StatusCodes.Status403Forbidden, new { message = "Chỉ Giáo viên hoặc Quản trị viên mới được phép xóa bài test." });
                     }
                 }
 
                 var questionIds = await _context.Questions.Where(q => q.TestId == id).Select(q => q.Id).ToListAsync();
                 var submissions = await _context.Submissions.Where(s => s.TestId == id).ToListAsync();
                 var submissionIds = submissions.Select(s => s.Id).ToList();
+                var assets = await _context.QuestionAssets
+                    .Where(asset => questionIds.Contains(asset.QuestionId))
+                    .ToListAsync();
+                var remoteObjectPaths = assets
+                    .Select(a => _storage.TryExtractObjectPath(a.FileUrl))
+                    .Where(p => !string.IsNullOrEmpty(p))
+                    .Distinct()
+                    .ToList();
 
-                var subDetails = await _context.SubmissionDetails.Where(sd => submissionIds.Contains(sd.SubmissionId) || questionIds.Contains(sd.QuestionId)).ToListAsync();
+                await using var transaction = await _context.Database.BeginTransactionAsync();
+
+                var subDetails = await _context.SubmissionDetails
+                    .Where(sd => submissionIds.Contains(sd.SubmissionId) || questionIds.Contains(sd.QuestionId))
+                    .ToListAsync();
                 if (subDetails.Any())
                 {
                     _context.SubmissionDetails.RemoveRange(subDetails);
@@ -789,6 +846,14 @@ namespace LyraSAT.Controllers
                     {
                         _context.CommentReactions.RemoveRange(reactions);
                     }
+
+                    // Ngắt liên kết cha-con trước khi xóa vì FK ParentCommentId đặt DeleteBehavior.Restrict
+                    foreach (var comment in comments)
+                    {
+                        comment.ParentCommentId = null;
+                    }
+                    await _context.SaveChangesAsync();
+
                     _context.QuestionComments.RemoveRange(comments);
                 }
 
@@ -798,9 +863,6 @@ namespace LyraSAT.Controllers
                 }
 
                 var questions = await _context.Questions.Where(q => q.TestId == id).ToListAsync();
-                var assets = await _context.QuestionAssets
-                    .Where(asset => questionIds.Contains(asset.QuestionId))
-                    .ToListAsync();
                 var assetRoot = Path.Combine(_env.WebRootPath ?? Path.Combine(Directory.GetCurrentDirectory(), "wwwroot"), "uploads", "tests", id.ToString());
                 if (questions.Any())
                 {
@@ -822,6 +884,13 @@ namespace LyraSAT.Controllers
 
                 _context.Tests.Remove(test);
                 await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+
+                if (remoteObjectPaths.Count > 0)
+                {
+                    await Task.WhenAll(remoteObjectPaths.Select(p => _storage.DeleteAsync(p!)));
+                }
+
                 if (Directory.Exists(assetRoot))
                 {
                     Directory.Delete(assetRoot, recursive: true);

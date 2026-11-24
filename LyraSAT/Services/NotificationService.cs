@@ -174,11 +174,13 @@ namespace LyraSAT.Services
                 : (dto.Content.Length > 80 ? dto.Content.Substring(0, 80) + "..." : dto.Content);
 
             // 1. Nếu là phản hồi: gửi thông báo cho người viết bình luận gốc
+            int? replyRecipientUserId = null;
             if (dto.ParentCommentId.HasValue)
             {
                 var parentComment = await _context.QuestionComments.FindAsync(dto.ParentCommentId.Value);
                 if (parentComment != null && parentComment.UserId != dto.UserId)
                 {
+                    replyRecipientUserId = parentComment.UserId;
                     _context.Notifications.Add(new Notification
                     {
                         UserId = parentComment.UserId,
@@ -197,10 +199,13 @@ namespace LyraSAT.Services
                 }
             }
 
-            // 2. Giáo viên phụ trách lớp + quản trị viên (trừ chính người gửi)
+            // 2. Giáo viên phụ trách lớp + quản trị viên (trừ chính người gửi và người đã nhận comment_reply)
             var teacherIds = await GetClassTeacherIdsAsync(classCode);
             var adminIds = await GetAdminIdsAsync();
-            var recipients = teacherIds.Concat(adminIds).Distinct().Where(id => id != dto.UserId).ToList();
+            var recipients = teacherIds.Concat(adminIds)
+                .Distinct()
+                .Where(id => id != dto.UserId && id != replyRecipientUserId)
+                .ToList();
 
             foreach (var tId in recipients)
             {

@@ -8,7 +8,7 @@ namespace LyraSAT.Services
     /// </summary>
     public static class VocabularyDocumentParser
     {
-        public static List<Vocabulary> Parse(XWPFDocument document, string classCode, string seriesName)
+        public static List<Vocabulary> Parse(XWPFDocument document, string? classCode, string seriesName)
         {
             var paragraphs = document.Paragraphs
                 .Select(p => p.ParagraphText.Trim())

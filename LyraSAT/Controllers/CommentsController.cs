@@ -131,6 +131,16 @@ namespace LyraSAT.Controllers
                     return NotFound(new { message = "Không tìm thấy câu hỏi." });
                 }
 
+                if (dto.ParentCommentId.HasValue)
+                {
+                    bool validParent = await _context.QuestionComments
+                        .AnyAsync(c => c.Id == dto.ParentCommentId.Value && c.QuestionId == dto.QuestionId);
+                    if (!validParent)
+                    {
+                        return BadRequest(new { message = "Bình luận gốc không hợp lệ." });
+                    }
+                }
+
                 var newComment = new QuestionComment
                 {
                     QuestionId = dto.QuestionId,
@@ -200,7 +210,7 @@ namespace LyraSAT.Controllers
 
                 if (comment.UserId != dto.UserId)
                 {
-                    return Forbid("Bạn không có quyền chỉnh sửa bình luận này.");
+                    return StatusCode(StatusCodes.Status403Forbidden, new { message = "Bạn không có quyền chỉnh sửa bình luận này." });
                 }
 
                 comment.Content = dto.Content;
@@ -249,7 +259,7 @@ namespace LyraSAT.Controllers
                     _logger.LogWarning(
                         "Từ chối xóa bình luận {CommentId}: user {UserId} ({Role}) không phải tác giả {AuthorId}",
                         id, currentUserId, user.Role, comment.UserId);
-                    return Forbid("Bạn không có quyền xóa bình luận này.");
+                    return StatusCode(StatusCodes.Status403Forbidden, new { message = "Bạn không có quyền xóa bình luận này." });
                 }
 
                 // Nếu có replies, soft-delete để không làm gãy cây trả lời
@@ -320,7 +330,7 @@ namespace LyraSAT.Controllers
                     _context.CommentReactions.Add(new CommentReaction
                     {
                         CommentId = id,
-                        UserId = dto.UserId,
+                        UserId = effectiveUserId,
                         ReactionType = (dto?.ReactionType ?? "heart"),
                         CreatedAt = DateTime.UtcNow
                     });
@@ -347,7 +357,7 @@ namespace LyraSAT.Controllers
                 var user = await _context.Users.FindAsync(dto.UserId);
                 if (user == null || (user.Role != "Teacher" && user.Role != "Admin"))
                 {
-                    return Forbid("Chỉ Giáo viên hoặc Admin mới có quyền ghim bình luận.");
+                    return StatusCode(StatusCodes.Status403Forbidden, new { message = "Chỉ Giáo viên hoặc Admin mới có quyền ghim bình luận." });
                 }
 
                 var comment = await _context.QuestionComments.FindAsync(id);
