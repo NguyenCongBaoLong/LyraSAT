@@ -251,36 +251,10 @@ namespace LyraSAT.Controllers
                 normalizedClassCode = targetClass.ClassCode;
 
                 // 1. Đọc & kiểm tra file Word TRƯỚC khi ghi DB để file lỗi không tạo đề rác.
-                using var stream = file.OpenReadStream();
-                using var buffer = new MemoryStream();
-                await stream.CopyToAsync(buffer);
-                var fileBytes = buffer.ToArray();
-
-                using var document = OpenWordDocument(ref fileBytes);
-
-                // NPOI không đọc công thức Word (OMML) nên đọc document.xml một lần để dựng cả body & table.
-                var (paragraphMath, tableParagraphMath) = SatWordTestParser.ExtractAllParagraphMath(new MemoryStream(fileBytes));
-                var extractedLines = SatWordTestParser.ExtractDocumentLines(document, paragraphMath, tableParagraphMath);
-
-                // 2. Bóc tách & soát lỗi câu hỏi SAT
-                var questions = SatWordTestParser.Parse(extractedLines, 0, out var skippedQuestions);
-                if (questions.Count == 0)
+                var (questions, parseError) = await ParseValidatedQuestionsFromWordAsync(file, 0);
+                if (parseError != null)
                 {
-                    return BadRequest(new { message = "File Word không đúng cấu trúc định dạng câu hỏi SAT (Thiếu các từ khóa Text:, Question:, hoặc các đáp án A, B, C, D)!" });
-                }
-
-                var optionIssues = SatWordTestParser.Validate(questions);
-                optionIssues.InsertRange(0, skippedQuestions);
-
-                if (optionIssues.Count > 0)
-                {
-                    var preview = string.Join(" ", optionIssues.Take(5));
-                    var more = optionIssues.Count > 5 ? $" (còn {optionIssues.Count - 5} lỗi khác)" : "";
-                    return BadRequest(new
-                    {
-                        message = $"File Word có {optionIssues.Count} lỗi nên chưa được lưu: {preview}{more}",
-                        issues = optionIssues
-                    });
+                    return parseError;
                 }
 
                 // 3. Dữ liệu sạch -> tạo bài test + câu hỏi trong DB
@@ -347,6 +321,141 @@ namespace LyraSAT.Controllers
 
         private static readonly string[] AllowedVideoExts =
             { ".mp4", ".m4v", ".webm", ".mov", ".ogv" };
+
+        private async Task<(List<Question> Questions, IActionResult? ErrorResult)> ParseValidatedQuestionsFromWordAsync(IFormFile file, int testId)
+        {
+            using var stream = file.OpenReadStream();
+            using var buffer = new MemoryStream();
+            await stream.CopyToAsync(buffer);
+            var fileBytes = buffer.ToArray();
+
+            using var document = OpenWordDocument(ref fileBytes);
+
+            // NPOI không đọc công thức Word (OMML) nên đọc document.xml một lần để dựng cả body & table.
+            var (paragraphMath, tableParagraphMath) = SatWordTestParser.ExtractAllParagraphMath(new MemoryStream(fileBytes));
+            var extractedLines = SatWordTestParser.ExtractDocumentLines(document, paragraphMath, tableParagraphMath);
+
+            var questions = SatWordTestParser.Parse(extractedLines, testId, out var skippedQuestions);
+            if (questions.Count == 0)
+            {
+                return (questions, BadRequest(new { message = "File Word không đúng cấu trúc định dạng câu hỏi SAT (Thiếu các từ khóa Text:, Question:, hoặc các đáp án A, B, C, D)!" }));
+            }
+
+            var optionIssues = SatWordTestParser.Validate(questions);
+            optionIssues.InsertRange(0, skippedQuestions);
+
+            if (optionIssues.Count > 0)
+            {
+                var preview = string.Join(" ", optionIssues.Take(5));
+                var more = optionIssues.Count > 5 ? $" (còn {optionIssues.Count - 5} lỗi khác)" : "";
+                return (questions, BadRequest(new
+                {
+                    message = $"File Word có {optionIssues.Count} lỗi nên chưa được lưu: {preview}{more}",
+                    issues = optionIssues
+                }));
+            }
+
+            return (questions, null);
+        }
+
+        /// <summary>
+        /// Cập nhật lại nội dung câu hỏi của đề ĐÃ giao từ file Word (.docx) mà vẫn giữ nguyên Question.Id và bài nộp của học sinh.
+        /// </summary>
+        [HttpPut("{id}/replace-word")]
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> ReplaceTestWord(int id, IFormFile? file = null, [FromQuery] int? userId = null)
+        {
+            int currentUserId = userId ?? 0;
+            if (currentUserId <= 0 && Request.Headers.TryGetValue("X-User-Id", out var hId) && int.TryParse(hId, out int parsedHId))
+            {
+                currentUserId = parsedHId;
+            }
+
+            var user = currentUserId > 0
+                ? await _context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == currentUserId)
+                : null;
+            if (user == null || (user.Role != "Teacher" && user.Role != "Admin"))
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, new { message = "Chỉ Giáo viên hoặc Quản trị viên mới được phép cập nhật nội dung đề thi." });
+            }
+
+            if (file == null || file.Length == 0)
+            {
+                return BadRequest(new { message = "Vui lòng chọn file Word (.docx) tải lên!" });
+            }
+
+            if (!file.FileName.EndsWith(".docx", StringComparison.OrdinalIgnoreCase))
+            {
+                return BadRequest(new { message = "Hệ thống chỉ hỗ trợ định dạng file Word (.docx)!" });
+            }
+
+            try
+            {
+                var test = await _context.Tests
+                    .Include(t => t.Questions)
+                    .FirstOrDefaultAsync(t => t.Id == id);
+                if (test == null)
+                {
+                    return NotFound(new { message = "Không tìm thấy bài test!" });
+                }
+
+                var existingQuestions = test.Questions.OrderBy(q => q.Id).ToList();
+                var (parsedQuestions, parseError) = await ParseValidatedQuestionsFromWordAsync(file, test.Id);
+                if (parseError != null)
+                {
+                    return parseError;
+                }
+
+                if (parsedQuestions.Count != existingQuestions.Count)
+                {
+                    return BadRequest(new
+                    {
+                        message = $"Số câu hỏi trong file mới ({parsedQuestions.Count}) không khớp với đề hiện tại ({existingQuestions.Count})."
+                    });
+                }
+
+                await using var transaction = await _context.Database.BeginTransactionAsync();
+
+                for (int i = 0; i < existingQuestions.Count; i++)
+                {
+                    var target = existingQuestions[i];
+                    var source = parsedQuestions[i];
+                    target.PassageText = source.PassageText;
+                    target.QuestionText = source.QuestionText;
+                    target.OptionA = source.OptionA;
+                    target.OptionB = source.OptionB;
+                    target.OptionC = source.OptionC;
+                    target.OptionD = source.OptionD;
+                    target.CorrectAnswer = source.CorrectAnswer;
+                    target.QuestionType = source.QuestionType;
+                }
+
+                var existingQuestionIds = existingQuestions.Select(q => q.Id).ToList();
+                var oldAssets = await _context.QuestionAssets
+                    .Where(asset => existingQuestionIds.Contains(asset.QuestionId))
+                    .ToListAsync();
+                if (oldAssets.Count > 0)
+                {
+                    _context.QuestionAssets.RemoveRange(oldAssets);
+                }
+
+                await _context.SaveChangesAsync();
+                await ExtractAndPersistQuestionAssetsAsync(existingQuestions, test.Id);
+                await transaction.CommitAsync();
+
+                return Ok(new
+                {
+                    message = $"Đã cập nhật lại nội dung {existingQuestions.Count} câu hỏi (giữ nguyên toàn bộ bài nộp của học sinh).",
+                    testId = test.Id,
+                    updatedQuestions = existingQuestions.Count
+                });
+            }
+            catch (Exception ex)
+            {
+                var innerMsg = ex.InnerException != null ? " -> " + ex.InnerException.Message : "";
+                return StatusCode(500, new { message = "Lỗi khi cập nhật file Word: " + ex.Message + innerMsg });
+            }
+        }
 
         /// <summary>
         /// Gắn / đổi / gỡ link video chữa bài cho một đề ĐÃ giao.

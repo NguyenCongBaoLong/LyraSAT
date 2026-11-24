@@ -2046,6 +2046,9 @@ namespace LyraSAT.Services
             return html;
         }
 
+        private static bool IsOnOffEnabled(NPOI.OpenXmlFormats.Wordprocessing.CT_OnOff? onOff) =>
+            onOff != null && onOff.val;
+
         private static string RenderParagraph(XWPFParagraph paragraph)
         {
             var content = new StringBuilder();
@@ -2059,8 +2062,11 @@ namespace LyraSAT.Services
                     var encoded = WebUtility.HtmlEncode(text).Replace("\r\n", "<br>").Replace("\n", "<br>");
                     if (run.Subscript == VerticalAlign.SUPERSCRIPT) encoded = $"<sup>{encoded}</sup>";
                     else if (run.Subscript == VerticalAlign.SUBSCRIPT) encoded = $"<sub>{encoded}</sub>";
-                    if (run.IsBold) encoded = $"<strong>{encoded}</strong>";
-                    if (run.IsItalic) encoded = $"<em>{encoded}</em>";
+                    var rPr = run.GetCTR()?.rPr;
+                    bool isBold = rPr?.b != null ? IsOnOffEnabled(rPr.b) : run.IsBold;
+                    bool isItalic = rPr?.i != null ? IsOnOffEnabled(rPr.i) : run.IsItalic;
+                    if (isBold) encoded = $"<strong>{encoded}</strong>";
+                    if (isItalic) encoded = $"<em>{encoded}</em>";
                     if (HasUnderline(run)) encoded = $"<u>{encoded}</u>";
                     content.Append(encoded);
                 }
