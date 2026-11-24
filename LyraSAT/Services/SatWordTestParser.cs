@@ -98,7 +98,7 @@ namespace LyraSAT.Services
             @"[\^√=]|\d\s*/\s*\d", RegexOptions.Compiled);
 
         private static readonly Regex AllowedPlainMathCharset = new(
-            @"^[A-Za-z0-9\s\+\-\*/\^\(\)\[\]\{\}\.,\=<>_√²³⁴⁵⁶⁷⁸⁹⁰⁻⁺₀₁₂₃₄₅₆₇₈₉π∞·×÷±≠≤≥–—−°½⅓⅔¼¾⅕⅖⅗⅘⅙⅚⅛\|]+$",
+            @"^[A-Za-z0-9\s\+\-\*/\^\(\)\[\]\{\}\.,\=<>_√²³⁴⁵⁶⁷⁸⁹⁰⁻⁺₀₁₂₃₄₅₆₇₈₉π∞·×÷±≠≤≥–—−°½⅓⅔¼¾⅕⅖⅗⅘⅙⅚⅛\|∣｜‖∥]+$",
             RegexOptions.Compiled);
 
         private static readonly Regex DashRegex = new("[–—−]", RegexOptions.Compiled);
@@ -533,6 +533,14 @@ namespace LyraSAT.Services
             "" => ".",
             "{" => "\\{",
             "}" => "\\}",
+            "|" or "∣" or "｜" => "|",
+            "‖" or "∥" => "\\|",
+            "⌊" => "\\lfloor ",
+            "⌋" => "\\rfloor ",
+            "⌈" => "\\lceil ",
+            "⌉" => "\\rceil ",
+            "⟨" or "〈" => "\\langle ",
+            "⟩" or "〉" => "\\rangle ",
             _ => delim
         };
 
@@ -615,6 +623,14 @@ namespace LyraSAT.Services
                         break;
                     case '∈':
                         content.Append("\\in ");
+                        break;
+                    case '∣':
+                    case '｜':
+                        content.Append('|');
+                        break;
+                    case '‖':
+                    case '∥':
+                        content.Append("\\| ");
                         break;
                     default:
                         content.Append(ch);
@@ -1854,7 +1870,7 @@ namespace LyraSAT.Services
             });
         }
 
-        private const string AllowedMathSymbols = "√²³⁴⁵⁶⁷⁸⁹⁰⁻⁺₀₁₂₃₄₅₆₇₈₉π∞·×÷±≠≤≥–—−°½⅓⅔¼¾⅕⅖⅗⅘⅙⅚⅛";
+        private const string AllowedMathSymbols = "√²³⁴⁵⁶⁷⁸⁹⁰⁻⁺₀₁₂₃₄₅₆₇₈₉π∞·×÷±≠≤≥–—−°½⅓⅔¼¾⅕⅖⅗⅘⅙⅚⅛∣｜‖∥";
 
         private static bool IsPlainMathText(string text)
         {
@@ -1904,6 +1920,8 @@ namespace LyraSAT.Services
             var latex = text.Trim();
 
             latex = DashRegex.Replace(latex, "-");
+            latex = latex.Replace('∣', '|').Replace('｜', '|')
+                .Replace("‖", "\\| ").Replace("∥", "\\| ");
             latex = latex.Replace("×", "\\times ").Replace("÷", "\\div ").Replace("·", "\\cdot ")
                 .Replace("±", "\\pm ").Replace("∞", "\\infty ").Replace("π", "\\pi ")
                 .Replace("≠", "\\neq ").Replace("≤", "\\le ").Replace("≥", "\\ge ");
