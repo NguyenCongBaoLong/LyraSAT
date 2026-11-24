@@ -188,103 +188,115 @@ namespace LyraSAT.Controllers
         {
             try
             {
-                var user = await _context.Users.FindAsync(id);
-                if (user == null) return NotFound(new { message = "Không tìm thấy người dùng." });
+                var userMeta = await _context.Users
+                    .AsNoTracking()
+                    .Where(u => u.Id == id)
+                    .Select(u => new { u.Id, u.Role, u.FullName, u.Email })
+                    .FirstOrDefaultAsync();
+                if (userMeta == null) return NotFound(new { message = "Không tìm thấy người dùng." });
 
-                if (user.Role == "Admin") return BadRequest(new { message = "Không thể xóa tài khoản Quản trị viên." });
+                if (userMeta.Role == "Admin") return BadRequest(new { message = "Không thể xóa tài khoản Quản trị viên." });
 
-                await using var tx = await _context.Database.BeginTransactionAsync();
-
-                // Nếu là giáo viên chính/phụ trách lớp: gỡ khỏi Classes.TeacherId (FK NoAction) và ClassTeachers
-                var ledClasses = await _context.Classes.Where(c => c.TeacherId == id).ToListAsync();
-                foreach (var c in ledClasses)
+                var strategy = _context.Database.CreateExecutionStrategy();
+                await strategy.ExecuteAsync(async () =>
                 {
-                    c.TeacherId = null;
-                }
-                var teacherLinks = await _context.ClassTeachers.Where(ct => ct.TeacherId == id).ToListAsync();
-                if (teacherLinks.Any())
-                {
-                    _context.ClassTeachers.RemoveRange(teacherLinks);
-                }
+                    _context.ChangeTracker.Clear();
+                    await using var tx = await _context.Database.BeginTransactionAsync();
 
-                // Dọn dẹp bài nộp và chi tiết bài nộp của học sinh
-                var submissions = await _context.Submissions.Where(s => s.StudentId == id).ToListAsync();
-                if (submissions.Any())
-                {
-                    var subIds = submissions.Select(s => s.Id).ToList();
-                    var details = await _context.SubmissionDetails.Where(sd => subIds.Contains(sd.SubmissionId)).ToListAsync();
-                    if (details.Any())
+                    var user = await _context.Users.FindAsync(id);
+                    if (user == null) return;
+
+                    // Nếu là giáo viên chính/phụ trách lớp: gỡ khỏi Classes.TeacherId (FK NoAction) và ClassTeachers
+                    var ledClasses = await _context.Classes.Where(c => c.TeacherId == id).ToListAsync();
+                    foreach (var c in ledClasses)
                     {
-                        _context.SubmissionDetails.RemoveRange(details);
+                        c.TeacherId = null;
                     }
-                    _context.Submissions.RemoveRange(submissions);
-                }
-
-                // Dọn dẹp bình luận và tương tác
-                // Gồm cả các trả lời của người khác nhắm vào bình luận của user này:
-                // FK ParentCommentId là Restrict nên nếu bỏ sót, lệnh xoá sẽ ném lỗi FK.
-                var rootCommentIds = await _context.QuestionComments
-                    .Where(c => c.UserId == id)
-                    .Select(c => c.Id)
-                    .ToListAsync();
-
-                if (rootCommentIds.Any())
-                {
-                    var toDeleteIds = new HashSet<int>(rootCommentIds);
-                    bool foundMore = true;
-                    while (foundMore)
+                    var teacherLinks = await _context.ClassTeachers.Where(ct => ct.TeacherId == id).ToListAsync();
+                    if (teacherLinks.Any())
                     {
-                        var currentIds = toDeleteIds.ToList();
-                        var childIds = await _context.QuestionComments
-                            .Where(c => c.ParentCommentId.HasValue && currentIds.Contains(c.ParentCommentId.Value))
-                            .Select(c => c.Id)
+                        _context.ClassTeachers.RemoveRange(teacherLinks);
+                    }
+
+                    // Dọn dẹp bài nộp và chi tiết bài nộp của học sinh
+                    var submissions = await _context.Submissions.Where(s => s.StudentId == id).ToListAsync();
+                    if (submissions.Any())
+                    {
+                        var subIds = submissions.Select(s => s.Id).ToList();
+                        var details = await _context.SubmissionDetails.Where(sd => subIds.Contains(sd.SubmissionId)).ToListAsync();
+                        if (details.Any())
+                        {
+                            _context.SubmissionDetails.RemoveRange(details);
+                        }
+                        _context.Submissions.RemoveRange(submissions);
+                    }
+
+                    // Dọn dẹp bình luận và tương tác
+                    // Gồm cả các trả lời của người khác nhắm vào bình luận của user này:
+                    // FK ParentCommentId là Restrict nên nếu bỏ sót, lệnh xoá sẽ ném lỗi FK.
+                    var rootCommentIds = await _context.QuestionComments
+                        .Where(c => c.UserId == id)
+                        .Select(c => c.Id)
+                        .ToListAsync();
+
+                    if (rootCommentIds.Any())
+                    {
+                        var toDeleteIds = new HashSet<int>(rootCommentIds);
+                        bool foundMore = true;
+                        while (foundMore)
+                        {
+                            var currentIds = toDeleteIds.ToList();
+                            var childIds = await _context.QuestionComments
+                                .Where(c => c.ParentCommentId.HasValue && currentIds.Contains(c.ParentCommentId.Value))
+                                .Select(c => c.Id)
+                                .ToListAsync();
+
+                            foundMore = false;
+                            foreach (var childId in childIds)
+                            {
+                                if (toDeleteIds.Add(childId)) foundMore = true;
+                            }
+                        }
+
+                        var ids = toDeleteIds.ToList();
+
+                        var reactions = await _context.CommentReactions
+                            .Where(r => ids.Contains(r.CommentId) || r.UserId == id)
+                            .ToListAsync();
+                        if (reactions.Any())
+                        {
+                            _context.CommentReactions.RemoveRange(reactions);
+                        }
+
+                        // Thông báo trỏ tới bình luận sắp xoá cũng phải dọn, nếu không chuông sẽ còn thông báo mồ côi
+                        var commentNotifications = await _context.Notifications
+                            .Where(n => n.CommentId.HasValue && ids.Contains(n.CommentId.Value))
+                            .ToListAsync();
+                        if (commentNotifications.Any())
+                        {
+                            _context.Notifications.RemoveRange(commentNotifications);
+                        }
+
+                        var comments = await _context.QuestionComments
+                            .Where(c => ids.Contains(c.Id))
                             .ToListAsync();
 
-                        foundMore = false;
-                        foreach (var childId in childIds)
+                        // Cắt liên kết cha-trước để không vướng FK Restrict khi xoá
+                        foreach (var comment in comments)
                         {
-                            if (toDeleteIds.Add(childId)) foundMore = true;
+                            comment.ParentCommentId = null;
                         }
+                        await _context.SaveChangesAsync();
+
+                        _context.QuestionComments.RemoveRange(comments);
                     }
 
-                    var ids = toDeleteIds.ToList();
-
-                    var reactions = await _context.CommentReactions
-                        .Where(r => ids.Contains(r.CommentId) || r.UserId == id)
-                        .ToListAsync();
-                    if (reactions.Any())
-                    {
-                        _context.CommentReactions.RemoveRange(reactions);
-                    }
-
-                    // Thông báo trỏ tới bình luận sắp xoá cũng phải dọn, nếu không chuông sẽ còn thông báo mồ côi
-                    var commentNotifications = await _context.Notifications
-                        .Where(n => n.CommentId.HasValue && ids.Contains(n.CommentId.Value))
-                        .ToListAsync();
-                    if (commentNotifications.Any())
-                    {
-                        _context.Notifications.RemoveRange(commentNotifications);
-                    }
-
-                    var comments = await _context.QuestionComments
-                        .Where(c => ids.Contains(c.Id))
-                        .ToListAsync();
-
-                    // Cắt liên kết cha-trước để không vướng FK Restrict khi xoá
-                    foreach (var comment in comments)
-                    {
-                        comment.ParentCommentId = null;
-                    }
+                    _context.Users.Remove(user);
                     await _context.SaveChangesAsync();
+                    await tx.CommitAsync();
+                });
 
-                    _context.QuestionComments.RemoveRange(comments);
-                }
-
-                _context.Users.Remove(user);
-                await _context.SaveChangesAsync();
-                await tx.CommitAsync();
-
-                return Ok(new { message = $"Đã xóa vĩnh viễn tài khoản {user.FullName} ({user.Email}) thành công!" });
+                return Ok(new { message = $"Đã xóa vĩnh viễn tài khoản {userMeta.FullName} ({userMeta.Email}) thành công!" });
             }
             catch (Exception ex)
             {

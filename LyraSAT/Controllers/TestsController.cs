@@ -391,63 +391,97 @@ namespace LyraSAT.Controllers
 
             try
             {
-                var test = await _context.Tests
-                    .Include(t => t.Questions)
-                    .FirstOrDefaultAsync(t => t.Id == id);
-                if (test == null)
+                bool testExists = await _context.Tests.AsNoTracking().AnyAsync(t => t.Id == id);
+                if (!testExists)
                 {
                     return NotFound(new { message = "Không tìm thấy bài test!" });
                 }
 
-                var existingQuestions = test.Questions.OrderBy(q => q.Id).ToList();
-                var (parsedQuestions, parseError) = await ParseValidatedQuestionsFromWordAsync(file, test.Id);
+                var existingQuestionIds = await _context.Questions
+                    .AsNoTracking()
+                    .Where(q => q.TestId == id)
+                    .OrderBy(q => q.Id)
+                    .Select(q => q.Id)
+                    .ToListAsync();
+
+                var (parsedQuestions, parseError) = await ParseValidatedQuestionsFromWordAsync(file, id);
                 if (parseError != null)
                 {
                     return parseError;
                 }
 
-                if (parsedQuestions.Count != existingQuestions.Count)
+                if (parsedQuestions.Count != existingQuestionIds.Count)
                 {
                     return BadRequest(new
                     {
-                        message = $"Số câu hỏi trong file mới ({parsedQuestions.Count}) không khớp với đề hiện tại ({existingQuestions.Count})."
+                        message = $"Số câu hỏi trong file mới ({parsedQuestions.Count}) không khớp với đề hiện tại ({existingQuestionIds.Count})."
                     });
                 }
 
-                await using var transaction = await _context.Database.BeginTransactionAsync();
-
-                for (int i = 0; i < existingQuestions.Count; i++)
+                for (int i = 0; i < parsedQuestions.Count; i++)
                 {
-                    var target = existingQuestions[i];
-                    var source = parsedQuestions[i];
-                    target.PassageText = source.PassageText;
-                    target.QuestionText = source.QuestionText;
-                    target.OptionA = source.OptionA;
-                    target.OptionB = source.OptionB;
-                    target.OptionC = source.OptionC;
-                    target.OptionD = source.OptionD;
-                    target.CorrectAnswer = source.CorrectAnswer;
-                    target.QuestionType = source.QuestionType;
+                    parsedQuestions[i].Id = existingQuestionIds[i];
                 }
 
-                var existingQuestionIds = existingQuestions.Select(q => q.Id).ToList();
-                var oldAssets = await _context.QuestionAssets
-                    .Where(asset => existingQuestionIds.Contains(asset.QuestionId))
-                    .ToListAsync();
-                if (oldAssets.Count > 0)
-                {
-                    _context.QuestionAssets.RemoveRange(oldAssets);
-                }
+                var preparedAssets = await PrepareUploadedQuestionAssetsAsync(parsedQuestions, id);
 
-                await _context.SaveChangesAsync();
-                await ExtractAndPersistQuestionAssetsAsync(existingQuestions, test.Id);
-                await transaction.CommitAsync();
+                var strategy = _context.Database.CreateExecutionStrategy();
+                await strategy.ExecuteAsync(async () =>
+                {
+                    _context.ChangeTracker.Clear();
+                    await using var transaction = await _context.Database.BeginTransactionAsync();
+
+                    var existingQuestions = await _context.Questions
+                        .Where(q => q.TestId == id)
+                        .OrderBy(q => q.Id)
+                        .ToListAsync();
+
+                    for (int i = 0; i < existingQuestions.Count; i++)
+                    {
+                        var target = existingQuestions[i];
+                        var source = parsedQuestions[i];
+                        target.PassageText = source.PassageText;
+                        target.QuestionText = source.QuestionText;
+                        target.OptionA = source.OptionA;
+                        target.OptionB = source.OptionB;
+                        target.OptionC = source.OptionC;
+                        target.OptionD = source.OptionD;
+                        target.CorrectAnswer = source.CorrectAnswer;
+                        target.QuestionType = source.QuestionType;
+                    }
+
+                    var oldAssets = await _context.QuestionAssets
+                        .Where(asset => existingQuestionIds.Contains(asset.QuestionId))
+                        .ToListAsync();
+                    if (oldAssets.Count > 0)
+                    {
+                        _context.QuestionAssets.RemoveRange(oldAssets);
+                    }
+
+                    if (preparedAssets.Count > 0)
+                    {
+                        _context.QuestionAssets.AddRange(preparedAssets.Select(a => new QuestionAsset
+                        {
+                            QuestionId = a.QuestionId,
+                            AssetType = a.AssetType,
+                            FileUrl = a.FileUrl,
+                            FileName = a.FileName,
+                            MimeType = a.MimeType,
+                            AltText = a.AltText,
+                            Placement = a.Placement,
+                            SortOrder = a.SortOrder
+                        }));
+                    }
+
+                    await _context.SaveChangesAsync();
+                    await transaction.CommitAsync();
+                });
 
                 return Ok(new
                 {
-                    message = $"Đã cập nhật lại nội dung {existingQuestions.Count} câu hỏi (giữ nguyên toàn bộ bài nộp của học sinh).",
-                    testId = test.Id,
-                    updatedQuestions = existingQuestions.Count
+                    message = $"Đã cập nhật lại nội dung {existingQuestionIds.Count} câu hỏi (giữ nguyên toàn bộ bài nộp của học sinh).",
+                    testId = id,
+                    updatedQuestions = existingQuestionIds.Count
                 });
             }
             catch (Exception ex)
@@ -793,8 +827,9 @@ namespace LyraSAT.Controllers
             }
         }
 
-        private async Task ExtractAndPersistQuestionAssetsAsync(IEnumerable<Question> questions, int testId)
+        private async Task<List<QuestionAsset>> PrepareUploadedQuestionAssetsAsync(IEnumerable<Question> questions, int testId)
         {
+            var preparedAssets = new List<QuestionAsset>();
             var assetIndex = 0;
             var pendingFields = new List<(Question Question, string Name, string Value, string Placement, MatchCollection Matches, int BaseUploadIdx, int MatchCount)>();
             var uploads = new List<(byte[] Bytes, string ObjectPath, string MimeType, string FileName, string Placement, int QuestionId, int SortOrder)>();
@@ -840,7 +875,7 @@ namespace LyraSAT.Controllers
                 }
             }
 
-            if (uploads.Count == 0) return;
+            if (uploads.Count == 0) return preparedAssets;
 
             var uploadedUrls = new string[uploads.Count];
             using var gate = new System.Threading.SemaphoreSlim(5);
@@ -872,7 +907,7 @@ namespace LyraSAT.Controllers
                     replacedBuilder.Append(fileUrl);
                     previousIndex = match.Index + match.Length;
 
-                    _context.QuestionAssets.Add(new QuestionAsset
+                    preparedAssets.Add(new QuestionAsset
                     {
                         QuestionId = item.QuestionId,
                         AssetType = "Image",
@@ -896,6 +931,15 @@ namespace LyraSAT.Controllers
                 else if (pf.Name == "OptionD") pf.Question.OptionD = replaced;
             }
 
+            return preparedAssets;
+        }
+
+        private async Task ExtractAndPersistQuestionAssetsAsync(IEnumerable<Question> questions, int testId)
+        {
+            var preparedAssets = await PrepareUploadedQuestionAssetsAsync(questions, testId);
+            if (preparedAssets.Count == 0) return;
+
+            _context.QuestionAssets.AddRange(preparedAssets);
             await _context.SaveChangesAsync();
         }
 
@@ -905,8 +949,8 @@ namespace LyraSAT.Controllers
         {
             try
             {
-                var test = await _context.Tests.FindAsync(id);
-                if (test == null)
+                bool testExists = await _context.Tests.AsNoTracking().AnyAsync(t => t.Id == id);
+                if (!testExists)
                     return NotFound(new { message = "Không tìm thấy bài test." });
 
                 int currentUserId = userId ?? 0;
@@ -917,83 +961,97 @@ namespace LyraSAT.Controllers
 
                 if (currentUserId > 0)
                 {
-                    var user = await _context.Users.FindAsync(currentUserId);
+                    var user = await _context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == currentUserId);
                     if (user != null && user.Role != "Teacher" && user.Role != "Admin")
                     {
                         return StatusCode(StatusCodes.Status403Forbidden, new { message = "Chỉ Giáo viên hoặc Quản trị viên mới được phép xóa bài test." });
                     }
                 }
 
-                var questionIds = await _context.Questions.Where(q => q.TestId == id).Select(q => q.Id).ToListAsync();
-                var submissions = await _context.Submissions.Where(s => s.TestId == id).ToListAsync();
-                var submissionIds = submissions.Select(s => s.Id).ToList();
-                var assets = await _context.QuestionAssets
-                    .Where(asset => questionIds.Contains(asset.QuestionId))
-                    .ToListAsync();
-                var remoteObjectPaths = assets
-                    .Select(a => _storage.TryExtractObjectPath(a.FileUrl))
+                var initialQuestionIds = await _context.Questions.AsNoTracking().Where(q => q.TestId == id).Select(q => q.Id).ToListAsync();
+                var remoteObjectPaths = (await _context.QuestionAssets
+                        .AsNoTracking()
+                        .Where(asset => initialQuestionIds.Contains(asset.QuestionId))
+                        .Select(a => a.FileUrl)
+                        .ToListAsync())
+                    .Select(url => _storage.TryExtractObjectPath(url))
                     .Where(p => !string.IsNullOrEmpty(p))
                     .Distinct()
                     .ToList();
-
-                await using var transaction = await _context.Database.BeginTransactionAsync();
-
-                var subDetails = await _context.SubmissionDetails
-                    .Where(sd => submissionIds.Contains(sd.SubmissionId) || questionIds.Contains(sd.QuestionId))
-                    .ToListAsync();
-                if (subDetails.Any())
-                {
-                    _context.SubmissionDetails.RemoveRange(subDetails);
-                }
-
-                var comments = await _context.QuestionComments.Where(c => questionIds.Contains(c.QuestionId)).ToListAsync();
-                if (comments.Any())
-                {
-                    var commentIds = comments.Select(c => c.Id).ToList();
-                    var reactions = await _context.CommentReactions.Where(r => commentIds.Contains(r.CommentId)).ToListAsync();
-                    if (reactions.Any())
-                    {
-                        _context.CommentReactions.RemoveRange(reactions);
-                    }
-
-                    // Ngắt liên kết cha-con trước khi xóa vì FK ParentCommentId đặt DeleteBehavior.Restrict
-                    foreach (var comment in comments)
-                    {
-                        comment.ParentCommentId = null;
-                    }
-                    await _context.SaveChangesAsync();
-
-                    _context.QuestionComments.RemoveRange(comments);
-                }
-
-                if (submissions.Any())
-                {
-                    _context.Submissions.RemoveRange(submissions);
-                }
-
-                var questions = await _context.Questions.Where(q => q.TestId == id).ToListAsync();
                 var assetRoot = Path.Combine(_env.WebRootPath ?? Path.Combine(Directory.GetCurrentDirectory(), "wwwroot"), "uploads", "tests", id.ToString());
-                if (questions.Any())
-                {
-                    _context.Questions.RemoveRange(questions);
-                }
-                if (assets.Any())
-                {
-                    _context.QuestionAssets.RemoveRange(assets);
-                }
 
-                // Dọn thông báo trỏ tới đề/câu hỏi sắp xóa (tránh chuông còn thông báo "mồ côi")
-                var relatedNotifications = await _context.Notifications
-                    .Where(n => n.TestId == id || (n.QuestionId.HasValue && questionIds.Contains(n.QuestionId.Value)))
-                    .ToListAsync();
-                if (relatedNotifications.Any())
+                var strategy = _context.Database.CreateExecutionStrategy();
+                await strategy.ExecuteAsync(async () =>
                 {
-                    _context.Notifications.RemoveRange(relatedNotifications);
-                }
+                    _context.ChangeTracker.Clear();
+                    await using var transaction = await _context.Database.BeginTransactionAsync();
 
-                _context.Tests.Remove(test);
-                await _context.SaveChangesAsync();
-                await transaction.CommitAsync();
+                    var testEntity = await _context.Tests.FindAsync(id);
+                    if (testEntity == null) return;
+
+                    var questionIds = await _context.Questions.Where(q => q.TestId == id).Select(q => q.Id).ToListAsync();
+                    var submissions = await _context.Submissions.Where(s => s.TestId == id).ToListAsync();
+                    var submissionIds = submissions.Select(s => s.Id).ToList();
+                    var assets = await _context.QuestionAssets
+                        .Where(asset => questionIds.Contains(asset.QuestionId))
+                        .ToListAsync();
+
+                    var subDetails = await _context.SubmissionDetails
+                        .Where(sd => submissionIds.Contains(sd.SubmissionId) || questionIds.Contains(sd.QuestionId))
+                        .ToListAsync();
+                    if (subDetails.Any())
+                    {
+                        _context.SubmissionDetails.RemoveRange(subDetails);
+                    }
+
+                    var comments = await _context.QuestionComments.Where(c => questionIds.Contains(c.QuestionId)).ToListAsync();
+                    if (comments.Any())
+                    {
+                        var commentIds = comments.Select(c => c.Id).ToList();
+                        var reactions = await _context.CommentReactions.Where(r => commentIds.Contains(r.CommentId)).ToListAsync();
+                        if (reactions.Any())
+                        {
+                            _context.CommentReactions.RemoveRange(reactions);
+                        }
+
+                        // Ngắt liên kết cha-con trước khi xóa vì FK ParentCommentId đặt DeleteBehavior.Restrict
+                        foreach (var comment in comments)
+                        {
+                            comment.ParentCommentId = null;
+                        }
+                        await _context.SaveChangesAsync();
+
+                        _context.QuestionComments.RemoveRange(comments);
+                    }
+
+                    if (submissions.Any())
+                    {
+                        _context.Submissions.RemoveRange(submissions);
+                    }
+
+                    var questions = await _context.Questions.Where(q => q.TestId == id).ToListAsync();
+                    if (questions.Any())
+                    {
+                        _context.Questions.RemoveRange(questions);
+                    }
+                    if (assets.Any())
+                    {
+                        _context.QuestionAssets.RemoveRange(assets);
+                    }
+
+                    // Dọn thông báo trỏ tới đề/câu hỏi sắp xóa (tránh chuông còn thông báo "mồ côi")
+                    var relatedNotifications = await _context.Notifications
+                        .Where(n => n.TestId == id || (n.QuestionId.HasValue && questionIds.Contains(n.QuestionId.Value)))
+                        .ToListAsync();
+                    if (relatedNotifications.Any())
+                    {
+                        _context.Notifications.RemoveRange(relatedNotifications);
+                    }
+
+                    _context.Tests.Remove(testEntity);
+                    await _context.SaveChangesAsync();
+                    await transaction.CommitAsync();
+                });
 
                 if (remoteObjectPaths.Count > 0)
                 {
