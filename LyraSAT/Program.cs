@@ -23,7 +23,10 @@ builder.Services.AddResponseCompression(options =>
 {
     options.EnableForHttps = true;
 });
-builder.Services.AddHttpClient<ISupabaseStorageService, SupabaseStorageService>();
+builder.Services.AddHttpClient<ISupabaseStorageService, SupabaseStorageService>(client =>
+{
+    client.Timeout = TimeSpan.FromMinutes(10);
+});
 
 // Video chữa bài của giáo viên có thể vài chục MB, mặc định multipart chỉ 128MB
 // và bị Kestrel chặn sớm; nâng lên để endpoint upload video nhận được file.

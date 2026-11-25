@@ -1,74 +1,125 @@
+using Microsoft.AspNetCore.Http;
 using System;
-using System.Text.RegularExpressions;
+using System.IO;
+using System.Linq;
 
 namespace LyraSAT.Services
 {
     /// <summary>
-    /// Kiểm tra một link video chữa bài có phát được trong khung nhúng hay không.
-    /// Dùng chung cho video cấp đề (TestVideosController) và video cấp câu hỏi
-    /// (QuestionsController) để hai nơi không lệch luật nhau.
+    /// Kiểm tra và chuẩn hóa link/file video chữa bài.
+    /// Dùng chung cho video cấp đề (TestsController, TestVideosController) và cấp câu hỏi
+    /// (QuestionsController) để các luồng thống nhất hoàn toàn.
     /// </summary>
     public static class VideoLinkValidator
     {
-        private static readonly Regex DirectVideoExtRegex = new(
-            @"\.(mp4|m4v|webm|mov|ogv)$",
-            RegexOptions.Compiled | RegexOptions.IgnoreCase);
-
-        private static bool HostMatches(string host, string domain) =>
-            host.Equals(domain, StringComparison.OrdinalIgnoreCase) ||
-            host.EndsWith("." + domain, StringComparison.OrdinalIgnoreCase);
+        public const long MaxVideoBytes = 150L * 1024 * 1024;
+        private static readonly string[] DisallowedSchemePrefixes =
+        {
+            "javascript:", "data:", "vbscript:", "file:", "mailto:", "tel:", "ftp:"
+        };
 
         /// <summary>
-        /// Trả về null nếu link dùng được, hoặc câu thông báo lỗi bằng tiếng Việt.
+        /// Chuẩn hóa đường dẫn người dùng dán vào (tự thêm https:// nếu dán thiếu giao thức).
+        /// </summary>
+        public static string Normalize(string? rawUrl)
+        {
+            var url = rawUrl?.Trim() ?? string.Empty;
+            if (url.Length == 0)
+            {
+                return string.Empty;
+            }
+
+            if (url.StartsWith("/uploads/", StringComparison.OrdinalIgnoreCase))
+            {
+                return url;
+            }
+
+            if (!url.Contains("://", StringComparison.Ordinal) &&
+                !DisallowedSchemePrefixes.Any(prefix => url.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) &&
+                url.Contains('.', StringComparison.Ordinal) &&
+                !url.Any(char.IsWhiteSpace))
+            {
+                return "https://" + url;
+            }
+
+            return url;
+        }
+
+        /// <summary>
+        /// Trả về null nếu link dùng được (YouTube công khai/không công khai/Shorts, Drive, Vimeo, Loom, URL https hợp lệ...),
+        /// hoặc câu thông báo lỗi bằng tiếng Việt.
         /// </summary>
         public static string? Validate(string? rawUrl)
         {
-            var url = rawUrl?.Trim() ?? string.Empty;
+            var url = Normalize(rawUrl);
             if (url.Length == 0)
             {
                 return "Hãy dán link video hoặc tải file lên.";
             }
 
-            // File đã upload nội bộ
+            if (url.Length > 2048)
+            {
+                return "Link video quá dài (tối đa 2048 ký tự).";
+            }
+
+            // Giữ tương thích với đường dẫn file nội bộ cũ nếu còn trong DB
             if (url.StartsWith("/uploads/", StringComparison.OrdinalIgnoreCase))
             {
                 return null;
             }
 
+            if (url.Any(char.IsWhiteSpace))
+            {
+                return "Link video không hợp lệ (chứa khoảng trắng).";
+            }
+
             if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) ||
-                (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+                (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps) ||
+                string.IsNullOrWhiteSpace(uri.Host) ||
+                (!uri.Host.Contains('.', StringComparison.Ordinal) &&
+                 !uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase)))
             {
-                return "Link phải bắt đầu bằng http:// hoặc https://.";
+                return "Link không hợp lệ. Hãy dán đúng đường dẫn bắt đầu bằng http:// hoặc https://.";
             }
 
-            var host = uri.Host;
+            return null;
+        }
 
-            // Google Docs/Slides/Sheets và thư mục Drive bị Google chặn nhúng -> khung đen.
-            if (HostMatches(host, "docs.google.com") ||
-                HostMatches(host, "slides.google.com") ||
-                HostMatches(host, "sheets.google.com") ||
-                (HostMatches(host, "drive.google.com") && uri.AbsolutePath.StartsWith("/drive/", StringComparison.OrdinalIgnoreCase)))
+        public static string GetVideoContentType(string ext) => ext switch
+        {
+            ".mp4" or ".m4v" => "video/mp4",
+            ".webm" => "video/webm",
+            ".mov" => "video/quicktime",
+            ".ogv" => "video/ogg",
+            _ => "application/octet-stream"
+        };
+
+        /// <summary>
+        /// Kiểm tra file video upload dùng chung và trả về extension + MIME content-type chuẩn.
+        /// </summary>
+        public static string? ValidateVideoFile(IFormFile? file, out string ext, out string contentType)
+        {
+            ext = string.Empty;
+            contentType = "application/octet-stream";
+
+            if (file == null || file.Length == 0)
             {
-                return "Link Google Docs/Slides/Drive folder không phát được trong khung video. " +
-                       "Hãy mở file video bằng Drive rồi lấy link chia sẻ của chính file video đó.";
+                return "Không tìm thấy file video tải lên.";
             }
 
-            if (HostMatches(host, "youtube.com") ||
-                HostMatches(host, "youtu.be") ||
-                HostMatches(host, "drive.google.com") ||
-                HostMatches(host, "vimeo.com") ||
-                HostMatches(host, "loom.com"))
+            if (file.Length > MaxVideoBytes)
             {
-                return null;
+                return "File video vượt quá giới hạn 150MB.";
             }
 
-            // Link video trực tiếp (.mp4, .webm...)
-            if (DirectVideoExtRegex.IsMatch(uri.AbsolutePath))
+            ext = Path.GetExtension(file.FileName ?? string.Empty).ToLowerInvariant();
+            contentType = GetVideoContentType(ext);
+            if (contentType == "application/octet-stream")
             {
-                return null;
+                return "Định dạng video không hỗ trợ. Chỉ nhận mp4, m4v, webm, mov, ogv.";
             }
 
-            return "Link này chưa được hỗ trợ. Dùng link YouTube, Google Drive (file video) hoặc file mp4/webm.";
+            return null;
         }
     }
 }

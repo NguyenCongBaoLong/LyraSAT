@@ -232,8 +232,8 @@ namespace LyraSAT.Controllers
                     return BadRequest(new { message = "Vui lòng chọn lớp học cho đề thi." });
                 }
 
-                var initialVideo = videoExplanationUrl?.Trim();
-                if (!string.IsNullOrEmpty(initialVideo))
+                var initialVideo = VideoLinkValidator.Normalize(videoExplanationUrl);
+                if (initialVideo.Length > 0)
                 {
                     var videoErr = VideoLinkValidator.Validate(initialVideo);
                     if (videoErr != null)
@@ -315,12 +315,6 @@ namespace LyraSAT.Controllers
                 return StatusCode(500, new { message = "Lỗi khi xử lý file Word: " + ex.Message + innerMsg });
             }
         }
-
-        // Giới hạn dung lượng file video chữa bài: 150MB.
-        private const long MaxVideoBytes = 150L * 1024 * 1024;
-
-        private static readonly string[] AllowedVideoExts =
-            { ".mp4", ".m4v", ".webm", ".mov", ".ogv" };
 
         private async Task<(List<Question> Questions, IActionResult? ErrorResult)> ParseValidatedQuestionsFromWordAsync(IFormFile file, int testId)
         {
@@ -504,7 +498,8 @@ namespace LyraSAT.Controllers
                 return NotFound(new { message = "Không tìm thấy bài test!" });
             }
 
-            var url = dto?.VideoExplanationUrl?.Trim() ?? string.Empty;
+            var oldUrl = test.VideoExplanationUrl;
+            var url = VideoLinkValidator.Normalize(dto?.VideoExplanationUrl);
 
             if (url.Length > 0)
             {
@@ -518,6 +513,11 @@ namespace LyraSAT.Controllers
             test.VideoExplanationUrl = url.Length == 0 ? null : url;
             await _context.SaveChangesAsync();
 
+            if (!string.Equals(oldUrl, test.VideoExplanationUrl, StringComparison.OrdinalIgnoreCase))
+            {
+                await _storage.DeleteByUrlAsync(oldUrl);
+            }
+
             return Ok(new
             {
                 message = url.Length == 0 ? "Đã gỡ video chữa bài." : "Đã lưu video chữa bài.",
@@ -527,13 +527,12 @@ namespace LyraSAT.Controllers
         }
 
         /// <summary>
-        /// Tải file video chữa bài lên cho một đề ĐÃ giao, rồi gán luôn vào đề.
-        /// Lưu ý: file nằm trên ổ đĩa của server, sẽ mất nếu server deploy lại.
+        /// Tải file video chữa bài lên lưu trữ đám mây cho một đề ĐÃ giao, rồi gán luôn vào đề.
         /// </summary>
         [HttpPost("{id}/video-file")]
         [Consumes("multipart/form-data")]
-        [RequestSizeLimit(MaxVideoBytes + 5 * 1024 * 1024)]
-        [RequestFormLimits(MultipartBodyLengthLimit = MaxVideoBytes + 5 * 1024 * 1024)]
+        [RequestSizeLimit(VideoLinkValidator.MaxVideoBytes + 5 * 1024 * 1024)]
+        [RequestFormLimits(MultipartBodyLengthLimit = VideoLinkValidator.MaxVideoBytes + 5 * 1024 * 1024)]
         public async Task<IActionResult> UploadVideoExplanation(int id, IFormFile file)
         {
             var test = await _context.Tests.FirstOrDefaultAsync(t => t.Id == id);
@@ -542,41 +541,41 @@ namespace LyraSAT.Controllers
                 return NotFound(new { message = "Không tìm thấy bài test!" });
             }
 
-            if (file == null || file.Length == 0)
+            var fileErr = VideoLinkValidator.ValidateVideoFile(file, out var ext, out var contentType);
+            if (fileErr != null)
             {
-                return BadRequest(new { message = "Không tìm thấy file video tải lên." });
-            }
-
-            if (file.Length > MaxVideoBytes)
-            {
-                return BadRequest(new { message = "File video vượt quá giới hạn 150MB." });
-            }
-
-            var ext = Path.GetExtension(file.FileName ?? string.Empty).ToLowerInvariant();
-            if (!AllowedVideoExts.Contains(ext))
-            {
-                return BadRequest(new { message = "Định dạng video không hỗ trợ. Chỉ nhận mp4, m4v, webm, mov, ogv." });
+                return BadRequest(new { message = fileErr });
             }
 
             try
             {
-                var webRoot = _env.WebRootPath ?? Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
-                var uploadDir = Path.Combine(webRoot, "uploads", "tests");
-                Directory.CreateDirectory(uploadDir);
+                var objectPath = $"tests/{id}/{Guid.NewGuid():N}{ext}";
+                await using var stream = file.OpenReadStream();
+                var url = await _storage.UploadStreamAsync(
+                    stream,
+                    file.Length,
+                    objectPath,
+                    contentType,
+                    SupabaseStorageService.MediaBucket,
+                    HttpContext.RequestAborted);
 
-                var fileName = $"{Guid.NewGuid():N}{ext}";
-                var filePath = Path.Combine(uploadDir, fileName);
-
-                using (var stream = new FileStream(filePath, FileMode.Create))
-                {
-                    await file.CopyToAsync(stream);
-                }
-
-                var url = $"/uploads/tests/{fileName}";
+                var oldUrl = test.VideoExplanationUrl;
                 test.VideoExplanationUrl = url;
                 await _context.SaveChangesAsync();
 
-                return Ok(new { message = "Đã tải video lên và gắn vào bài test.", videoExplanationUrl = url });
+                if (!string.Equals(oldUrl, url, StringComparison.OrdinalIgnoreCase))
+                {
+                    await _storage.DeleteByUrlAsync(oldUrl);
+                }
+
+                return Ok(new { message = "Đã tải video lên lưu trữ đám mây và gắn vào bài test.", videoExplanationUrl = url });
+            }
+            catch (StorageFileTooLargeException)
+            {
+                return StatusCode(StatusCodes.Status413PayloadTooLarge, new
+                {
+                    message = "File video vượt giới hạn dung lượng lưu trữ đám mây (thường 50MB). Hãy nén nhỏ hơn hoặc đăng lên YouTube / Google Drive (công khai hay không công khai đều được) rồi dán link."
+                });
             }
             catch (Exception ex)
             {
@@ -969,14 +968,23 @@ namespace LyraSAT.Controllers
                 }
 
                 var initialQuestionIds = await _context.Questions.AsNoTracking().Where(q => q.TestId == id).Select(q => q.Id).ToListAsync();
-                var remoteObjectPaths = (await _context.QuestionAssets
-                        .AsNoTracking()
-                        .Where(asset => initialQuestionIds.Contains(asset.QuestionId))
-                        .Select(a => a.FileUrl)
-                        .ToListAsync())
-                    .Select(url => _storage.TryExtractObjectPath(url))
-                    .Where(p => !string.IsNullOrEmpty(p))
-                    .Distinct()
+                var testVideoUrl = await _context.Tests.AsNoTracking().Where(t => t.Id == id).Select(t => t.VideoExplanationUrl).FirstOrDefaultAsync();
+                var testVideoUrls = await _context.TestVideos.AsNoTracking().Where(v => v.TestId == id).Select(v => v.Url).ToListAsync();
+                var questionVideoUrls = await _context.Questions.AsNoTracking()
+                    .Where(q => q.TestId == id && q.VideoExplanationUrl != null)
+                    .Select(q => q.VideoExplanationUrl!)
+                    .ToListAsync();
+                var questionAssetUrls = await _context.QuestionAssets
+                    .AsNoTracking()
+                    .Where(asset => initialQuestionIds.Contains(asset.QuestionId))
+                    .Select(a => a.FileUrl)
+                    .ToListAsync();
+                var remoteUrls = questionAssetUrls
+                    .Concat(testVideoUrls)
+                    .Concat(questionVideoUrls)
+                    .Append(testVideoUrl)
+                    .Where(url => _storage.TryExtractBucketAndPath(url) != null)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
                     .ToList();
                 var assetRoot = Path.Combine(_env.WebRootPath ?? Path.Combine(Directory.GetCurrentDirectory(), "wwwroot"), "uploads", "tests", id.ToString());
 
@@ -1053,9 +1061,9 @@ namespace LyraSAT.Controllers
                     await transaction.CommitAsync();
                 });
 
-                if (remoteObjectPaths.Count > 0)
+                if (remoteUrls.Count > 0)
                 {
-                    await Task.WhenAll(remoteObjectPaths.Select(p => _storage.DeleteAsync(p!)));
+                    await Task.WhenAll(remoteUrls.Select(u => _storage.DeleteByUrlAsync(u)));
                 }
 
                 if (Directory.Exists(assetRoot))

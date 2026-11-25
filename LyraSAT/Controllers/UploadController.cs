@@ -1,8 +1,8 @@
+using LyraSAT.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using System;
 using System.IO;
-using System.Linq;
 using System.Threading.Tasks;
 
 namespace LyraSAT.Controllers
@@ -11,12 +11,31 @@ namespace LyraSAT.Controllers
     [ApiController]
     public class UploadController : ControllerBase
     {
-        private readonly IWebHostEnvironment _env;
+        private readonly ISupabaseStorageService _storage;
+        private readonly ILogger<UploadController> _logger;
 
-        public UploadController(IWebHostEnvironment env)
+        public UploadController(
+            ISupabaseStorageService storage,
+            ILogger<UploadController> logger)
         {
-            _env = env;
+            _storage = storage;
+            _logger = logger;
         }
+
+        private static string? GetAttachmentContentType(string ext) => ext switch
+        {
+            ".jpg" or ".jpeg" => "image/jpeg",
+            ".png" => "image/png",
+            ".webp" => "image/webp",
+            ".gif" => "image/gif",
+            ".mp3" => "audio/mpeg",
+            ".m4a" => "audio/mp4",
+            ".ogg" => "audio/ogg",
+            ".webm" => "audio/webm",
+            ".wav" => "audio/wav",
+            ".mp4" => "video/mp4",
+            _ => null
+        };
 
         [HttpPost("attachment")]
         [Consumes("multipart/form-data")]
@@ -35,36 +54,44 @@ namespace LyraSAT.Controllers
                     return BadRequest(new { message = "File vượt quá giới hạn 15MB." });
                 }
 
-                var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
-                var allowedExts = new[] { ".jpg", ".jpeg", ".png", ".webp", ".gif", ".mp3", ".m4a", ".ogg", ".webm", ".wav", ".mp4" };
-                if (!allowedExts.Contains(ext))
+                var ext = Path.GetExtension(file.FileName ?? string.Empty).ToLowerInvariant();
+                var contentType = GetAttachmentContentType(ext);
+                if (contentType == null)
                 {
                     // Fallback theo type nếu file name không có extension chuẩn
                     if (type == "audio") ext = ".webm";
                     else if (type == "video") ext = ".mp4";
                     else if (type == "image") ext = ".webp";
                     else return BadRequest(new { message = "Định dạng file không được hỗ trợ." });
+
+                    contentType = GetAttachmentContentType(ext) ?? "application/octet-stream";
                 }
 
-                var uploadDir = Path.Combine(_env.WebRootPath ?? Path.Combine(Directory.GetCurrentDirectory(), "wwwroot"), "uploads", "comments");
-                if (!Directory.Exists(uploadDir))
+                if (ext == ".webm" && type == "video")
                 {
-                    Directory.CreateDirectory(uploadDir);
+                    contentType = "video/webm";
                 }
 
                 var fileName = $"{Guid.NewGuid():N}{ext}";
-                var filePath = Path.Combine(uploadDir, fileName);
+                var objectPath = $"comments/{fileName}";
+                await using var stream = file.OpenReadStream();
+                var fileUrl = await _storage.UploadStreamAsync(
+                    stream,
+                    file.Length,
+                    objectPath,
+                    contentType,
+                    SupabaseStorageService.MediaBucket,
+                    HttpContext.RequestAborted);
 
-                using (var stream = new FileStream(filePath, FileMode.Create))
-                {
-                    await file.CopyToAsync(stream);
-                }
-
-                var fileUrl = $"/uploads/comments/{fileName}";
                 return Ok(new { url = fileUrl, fileName });
+            }
+            catch (StorageFileTooLargeException ex)
+            {
+                return StatusCode(StatusCodes.Status413PayloadTooLarge, new { message = ex.Message });
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "Lỗi lưu file đính kèm");
                 return StatusCode(500, new { message = "Lỗi khi lưu file: " + ex.Message });
             }
         }
