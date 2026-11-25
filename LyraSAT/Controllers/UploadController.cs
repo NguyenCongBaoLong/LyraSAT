@@ -33,7 +33,8 @@ namespace LyraSAT.Controllers
             ".ogg" => "audio/ogg",
             ".webm" => "audio/webm",
             ".wav" => "audio/wav",
-            ".mp4" => "video/mp4",
+            ".mp4" or ".m4v" => "video/mp4",
+            ".mov" => "video/quicktime",
             _ => null
         };
 
@@ -58,7 +59,12 @@ namespace LyraSAT.Controllers
                 var contentType = GetAttachmentContentType(ext);
                 if (contentType == null)
                 {
-                    // Fallback theo type nếu file name không có extension chuẩn
+                    // Chỉ fallback theo type khi file upload không có extension (vd: ghi âm blob)
+                    if (!string.IsNullOrEmpty(ext))
+                    {
+                        return BadRequest(new { message = $"Định dạng file '{ext}' không được hỗ trợ." });
+                    }
+
                     if (type == "audio") ext = ".webm";
                     else if (type == "video") ext = ".mp4";
                     else if (type == "image") ext = ".webp";

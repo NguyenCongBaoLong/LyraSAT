@@ -421,13 +421,37 @@ namespace LyraSAT.Controllers
                     _context.ClassTeachers.RemoveRange(classTeachers);
                 }
 
-                // Xóa mã lớp cũ trên bảng Users để không còn mã lớp mồ côi
+                // Dọn phân công học viên của lớp
+                var studentLinksToRemove = await _context.StudentClasses
+                    .Where(sc => sc.ClassId == targetClass.Id)
+                    .ToListAsync();
+                if (studentLinksToRemove.Any())
+                {
+                    _context.StudentClasses.RemoveRange(studentLinksToRemove);
+                }
+
+                // Cập nhật mã lớp chính trên Users: ưu tiên chuyển sang lớp còn lại trong StudentClasses, hết lớp mới set null
                 var legacyStudents = await _context.Users
                     .Where(u => u.ClassCode != null && u.ClassCode.ToLower() == lower)
                     .ToListAsync();
-                foreach (var student in legacyStudents)
+                if (legacyStudents.Any())
                 {
-                    student.ClassCode = null;
+                    var studentIds = legacyStudents.Select(s => s.Id).ToList();
+                    var fallbackByUser = await _context.StudentClasses
+                        .AsNoTracking()
+                        .Where(sc => studentIds.Contains(sc.UserId) && sc.ClassId != targetClass.Id && sc.Class != null)
+                        .OrderBy(sc => sc.AssignedAt)
+                        .Select(sc => new { sc.UserId, ClassCode = sc.Class!.ClassCode })
+                        .ToListAsync();
+
+                    var fallbackMap = fallbackByUser
+                        .GroupBy(x => x.UserId)
+                        .ToDictionary(g => g.Key, g => g.First().ClassCode);
+
+                    foreach (var student in legacyStudents)
+                    {
+                        student.ClassCode = fallbackMap.TryGetValue(student.Id, out var nextCode) ? nextCode : null;
+                    }
                 }
 
                 _context.Classes.Remove(targetClass);

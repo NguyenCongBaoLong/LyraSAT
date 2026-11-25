@@ -8,6 +8,13 @@ namespace LyraSAT.DTOs
         public string Url { get; set; } = string.Empty;
     }
 
+    // Cập nhật tên hoặc link của một video đã gắn (cho phép đổi riêng tên mà không cần gửi Url).
+    public class UpdateTestVideoDto
+    {
+        public string? Title { get; set; }
+        public string? Url { get; set; }
+    }
+
     // Một video trả về cho client (học sinh / giáo viên xem lại bài).
     public class TestVideoItemDto
     {

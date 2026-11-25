@@ -4,6 +4,7 @@ using LyraSAT.Models;
 using LyraSAT.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -17,15 +18,18 @@ namespace LyraSAT.Controllers
     {
         private readonly LyraSatDbContext _context;
         private readonly INotificationService _notificationService;
+        private readonly ISupabaseStorageService _storage;
         private readonly ILogger<CommentsController> _logger;
 
         public CommentsController(
             LyraSatDbContext context,
             INotificationService notificationService,
+            ISupabaseStorageService storage,
             ILogger<CommentsController> logger)
         {
             _context = context;
             _notificationService = notificationService;
+            _storage = storage;
             _logger = logger;
         }
 
@@ -70,13 +74,31 @@ namespace LyraSAT.Controllers
                     Replies = new List<CommentItemDto>()
                 }).ToList();
 
-                // Tạo cấu trúc phân nhánh cây (Thread / Replies)
+                // Tạo cấu trúc cây phẳng 2 tầng (Root -> mọi hậu duệ xếp theo thời gian để không rớt reply cấp >= 2)
                 var lookup = dtoList.ToLookup(c => c.ParentCommentId);
                 var rootComments = lookup[null].ToList();
 
                 foreach (var root in rootComments)
                 {
-                    root.Replies = lookup[root.Id].OrderBy(r => r.CreatedAt).ToList();
+                    var descendants = new List<CommentItemDto>();
+                    var queue = new Queue<int>();
+                    var visited = new HashSet<int> { root.Id };
+                    queue.Enqueue(root.Id);
+
+                    while (queue.Count > 0)
+                    {
+                        var currentId = queue.Dequeue();
+                        foreach (var child in lookup[currentId])
+                        {
+                            if (visited.Add(child.Id))
+                            {
+                                descendants.Add(child);
+                                queue.Enqueue(child.Id);
+                            }
+                        }
+                    }
+
+                    root.Replies = descendants.OrderBy(r => r.CreatedAt).ThenBy(r => r.Id).ToList();
                 }
 
                 // Sắp xếp: Comment được ghim (IsPinned) lên đầu tiên, sau đó theo thời gian mới nhất
@@ -133,12 +155,32 @@ namespace LyraSAT.Controllers
 
                 if (dto.ParentCommentId.HasValue)
                 {
-                    bool validParent = await _context.QuestionComments
-                        .AnyAsync(c => c.Id == dto.ParentCommentId.Value && c.QuestionId == dto.QuestionId);
-                    if (!validParent)
+                    var parent = await _context.QuestionComments
+                        .AsNoTracking()
+                        .FirstOrDefaultAsync(c => c.Id == dto.ParentCommentId.Value && c.QuestionId == dto.QuestionId);
+                    if (parent == null)
                     {
                         return BadRequest(new { message = "Bình luận gốc không hợp lệ." });
                     }
+
+                    // Nếu reply vào một reply con thì gom về comment gốc để cây thảo luận luôn phẳng, dễ đọc
+                    var rootId = parent.Id;
+                    var cursor = parent.ParentCommentId;
+                    var steps = 0;
+                    var seen = new HashSet<int> { rootId };
+                    while (cursor.HasValue && steps < 10 && seen.Add(cursor.Value))
+                    {
+                        var ancestor = await _context.QuestionComments
+                            .AsNoTracking()
+                            .Where(c => c.Id == cursor.Value && c.QuestionId == dto.QuestionId)
+                            .Select(c => new { c.Id, c.ParentCommentId })
+                            .FirstOrDefaultAsync();
+                        if (ancestor == null) break;
+                        rootId = ancestor.Id;
+                        cursor = ancestor.ParentCommentId;
+                        steps++;
+                    }
+                    dto.ParentCommentId = rootId;
                 }
 
                 var newComment = new QuestionComment
@@ -262,6 +304,8 @@ namespace LyraSAT.Controllers
                     return StatusCode(StatusCodes.Status403Forbidden, new { message = "Bạn không có quyền xóa bình luận này." });
                 }
 
+                var oldAttachmentUrl = comment.AttachmentUrl;
+
                 // Nếu có replies, soft-delete để không làm gãy cây trả lời
                 if (comment.Replies.Any())
                 {
@@ -292,6 +336,7 @@ namespace LyraSAT.Controllers
                     comment.IsDeleted ? "soft" : "hard");
 
                 await _context.SaveChangesAsync();
+                await MediaUrlCleaner.DeleteIfUnusedAsync(_context, _storage, oldAttachmentUrl);
                 return Ok(new { message = "Xóa bình luận thành công!" });
             }
             catch (Exception ex)
@@ -314,7 +359,13 @@ namespace LyraSAT.Controllers
                 }
 
                 int effectiveUserId = (dto != null && dto.UserId > 0) ? dto.UserId : (userId ?? 0);
-                if (effectiveUserId == 0) return BadRequest(new { message = "Thiếu thông tin UserId." });
+                if (effectiveUserId <= 0) return BadRequest(new { message = "Thiếu thông tin UserId." });
+
+                bool userExists = await _context.Users.AsNoTracking().AnyAsync(u => u.Id == effectiveUserId);
+                if (!userExists)
+                {
+                    return NotFound(new { message = "Không tìm thấy người dùng." });
+                }
 
                 var existingReaction = await _context.CommentReactions
                     .FirstOrDefaultAsync(r => r.CommentId == id && r.UserId == effectiveUserId);
@@ -337,7 +388,16 @@ namespace LyraSAT.Controllers
                     isLiked = true;
                 }
 
-                await _context.SaveChangesAsync();
+                try
+                {
+                    await _context.SaveChangesAsync();
+                }
+                catch (DbUpdateException dbEx) when (dbEx.InnerException is PostgresException pg && pg.SqlState == "23505")
+                {
+                    // Double-click gây insert trùng unique index: giữ trạng thái đã like và trả count hiện tại
+                    _context.ChangeTracker.Clear();
+                    isLiked = true;
+                }
 
                 var newCount = await _context.CommentReactions.CountAsync(r => r.CommentId == id);
                 return Ok(new { isLiked, likesCount = newCount });

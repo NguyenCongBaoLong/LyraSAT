@@ -130,7 +130,9 @@ namespace LyraSAT.Controllers
                 if (!string.IsNullOrWhiteSpace(classCode))
                 {
                     var lowerClassCode = ClassCodeHelper.Normalize(classCode).ToLower();
-                    query = query.Where(u => u.ClassCode != null && u.ClassCode.ToLower() == lowerClassCode);
+                    query = query.Where(u =>
+                        (u.ClassCode != null && u.ClassCode.ToLower() == lowerClassCode) ||
+                        _context.StudentClasses.Any(sc => sc.UserId == u.Id && sc.Class != null && sc.Class.ClassCode.ToLower() == lowerClassCode));
                 }
 
                 var result = await query
@@ -197,10 +199,12 @@ namespace LyraSAT.Controllers
 
                 if (userMeta.Role == "Admin") return BadRequest(new { message = "Không thể xóa tài khoản Quản trị viên." });
 
+                var attachmentUrls = new List<string?>();
                 var strategy = _context.Database.CreateExecutionStrategy();
                 await strategy.ExecuteAsync(async () =>
                 {
                     _context.ChangeTracker.Clear();
+                    attachmentUrls.Clear();
                     await using var tx = await _context.Database.BeginTransactionAsync();
 
                     var user = await _context.Users.FindAsync(id);
@@ -281,6 +285,10 @@ namespace LyraSAT.Controllers
                             .Where(c => ids.Contains(c.Id))
                             .ToListAsync();
 
+                        attachmentUrls.AddRange(comments
+                            .Where(c => !string.IsNullOrWhiteSpace(c.AttachmentUrl))
+                            .Select(c => c.AttachmentUrl));
+
                         // Cắt liên kết cha-trước để không vướng FK Restrict khi xoá
                         foreach (var comment in comments)
                         {
@@ -295,6 +303,11 @@ namespace LyraSAT.Controllers
                     await _context.SaveChangesAsync();
                     await tx.CommitAsync();
                 });
+
+                if (attachmentUrls.Count > 0)
+                {
+                    await MediaUrlCleaner.DeleteManyIfUnusedAsync(_context, _storage, attachmentUrls);
+                }
 
                 return Ok(new { message = $"Đã xóa vĩnh viễn tài khoản {userMeta.FullName} ({userMeta.Email}) thành công!" });
             }

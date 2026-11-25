@@ -107,29 +107,15 @@ namespace LyraSAT.Controllers
         {
             try
             {
-                var targetClass = await _context.Classes.FirstOrDefaultAsync(c => c.ClassCode.ToLower() == classCode.Trim().ToLower());
+                var targetClass = await _context.Classes
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(c => c.ClassCode.ToLower() == classCode.Trim().ToLower());
                 if (targetClass == null)
                 {
                     return NotFound(new { message = "Không tìm thấy lớp học." });
                 }
 
-                // Đồng bộ nếu targetClass.TeacherId chưa có trong ClassTeachers
-                if (targetClass.TeacherId.HasValue)
-                {
-                    bool existsInCt = await _context.ClassTeachers.AnyAsync(ct => ct.ClassCode.ToLower() == classCode.Trim().ToLower() && ct.TeacherId == targetClass.TeacherId.Value);
-                    if (!existsInCt)
-                    {
-                        _context.ClassTeachers.Add(new ClassTeacher
-                        {
-                            ClassCode = targetClass.ClassCode,
-                            TeacherId = targetClass.TeacherId.Value,
-                            AssignedAt = DateTime.UtcNow
-                        });
-                        await _context.SaveChangesAsync();
-                    }
-                }
-
-                // Danh sách giáo viên hiện tại của lớp
+                // Danh sách giáo viên hiện tại của lớp (gộp thêm TeacherId bên dưới nên không ghi DB trên GET)
                 var assignments = await _context.ClassTeachers
                     .Where(ct => ct.ClassCode.ToLower() == classCode.Trim().ToLower())
                     .ToListAsync();

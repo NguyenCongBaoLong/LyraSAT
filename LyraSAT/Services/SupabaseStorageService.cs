@@ -30,6 +30,7 @@ namespace LyraSAT.Services
 
         private readonly HttpClient _httpClient;
         private readonly string _supabaseUrl;
+        private readonly Uri _supabaseUri;
         private readonly string _serviceRoleKey;
         private readonly ILogger<SupabaseStorageService> _logger;
 
@@ -43,6 +44,11 @@ namespace LyraSAT.Services
                 configuration["Supabase:Url"] ??
                 configuration["SUPABASE_URL"])?.TrimEnd('/')
                 ?? throw new InvalidOperationException("Supabase URL is not configured.");
+            if (!Uri.TryCreate(_supabaseUrl, UriKind.Absolute, out var parsedUri))
+            {
+                throw new InvalidOperationException("Supabase URL is invalid.");
+            }
+            _supabaseUri = parsedUri;
             _serviceRoleKey =
                 configuration["Supabase:ServiceRoleKey"] ??
                 configuration["SUPABASE_SERVICE_ROLE_KEY"]
@@ -50,9 +56,57 @@ namespace LyraSAT.Services
             _logger = logger;
         }
 
+        private static string? CanonicalBucket(string? bucketName)
+        {
+            if (string.Equals(bucketName, BucketName, StringComparison.OrdinalIgnoreCase)) return BucketName;
+            if (string.Equals(bucketName, MediaBucket, StringComparison.OrdinalIgnoreCase)) return MediaBucket;
+            return null;
+        }
+
+        private static bool HasUnsafePathSegments(string path)
+        {
+            var segments = path.Split('/');
+            foreach (var segment in segments)
+            {
+                if (segment.Length == 0 || segment == "." || segment == "..")
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private static bool IsSafeObjectPath(string? objectPath)
+        {
+            if (string.IsNullOrWhiteSpace(objectPath)) return false;
+            if (objectPath.IndexOfAny(['\\', '?', '#']) >= 0) return false;
+            if (objectPath.Any(char.IsControl)) return false;
+            if (HasUnsafePathSegments(objectPath)) return false;
+
+            string unescaped;
+            try
+            {
+                unescaped = Uri.UnescapeDataString(objectPath);
+            }
+            catch
+            {
+                return false;
+            }
+
+            if (unescaped.IndexOfAny(['\\', '?', '#']) >= 0) return false;
+            if (unescaped.Any(char.IsControl)) return false;
+            if (HasUnsafePathSegments(unescaped)) return false;
+
+            return true;
+        }
+
         private async Task EnsurePublicBucketAsync(string bucketName, CancellationToken cancellationToken)
         {
             if (VerifiedBuckets.ContainsKey(bucketName)) return;
+
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeoutCts.CancelAfter(TimeSpan.FromSeconds(15));
+            var opToken = timeoutCts.Token;
 
             using var checkRequest = new HttpRequestMessage(
                 HttpMethod.Get,
@@ -60,14 +114,14 @@ namespace LyraSAT.Services
             checkRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _serviceRoleKey);
             checkRequest.Headers.Add("apikey", _serviceRoleKey);
 
-            using var checkResponse = await _httpClient.SendAsync(checkRequest, cancellationToken);
+            using var checkResponse = await _httpClient.SendAsync(checkRequest, opToken);
             if (checkResponse.IsSuccessStatusCode)
             {
                 VerifiedBuckets[bucketName] = true;
                 return;
             }
 
-            var checkBody = await checkResponse.Content.ReadAsStringAsync(cancellationToken);
+            var checkBody = await checkResponse.Content.ReadAsStringAsync(opToken);
             bool bucketMissing = checkResponse.StatusCode == HttpStatusCode.NotFound ||
                 (checkResponse.StatusCode == HttpStatusCode.BadRequest &&
                  checkBody.Contains("not found", StringComparison.OrdinalIgnoreCase));
@@ -90,8 +144,8 @@ namespace LyraSAT.Services
             createRequest.Headers.Add("apikey", _serviceRoleKey);
             createRequest.Content = new StringContent(payload, Encoding.UTF8, "application/json");
 
-            using var createResponse = await _httpClient.SendAsync(createRequest, cancellationToken);
-            var createBody = await createResponse.Content.ReadAsStringAsync(cancellationToken);
+            using var createResponse = await _httpClient.SendAsync(createRequest, opToken);
+            var createBody = await createResponse.Content.ReadAsStringAsync(opToken);
             if (createResponse.IsSuccessStatusCode ||
                 createResponse.StatusCode == HttpStatusCode.Conflict ||
                 createBody.Contains("already exists", StringComparison.OrdinalIgnoreCase))
@@ -176,22 +230,46 @@ namespace LyraSAT.Services
         public (string Bucket, string ObjectPath)? TryExtractBucketAndPath(string? fileUrl)
         {
             if (string.IsNullOrWhiteSpace(fileUrl)) return null;
+            var trimmed = fileUrl.Trim();
+            if (trimmed.IndexOfAny(['\\']) >= 0 || trimmed.Any(char.IsControl)) return null;
+
+            if (!Uri.TryCreate(trimmed, UriKind.Absolute, out var uri)) return null;
+            if (!string.Equals(uri.Scheme, _supabaseUri.Scheme, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(uri.Host, _supabaseUri.Host, StringComparison.OrdinalIgnoreCase) ||
+                uri.Port != _supabaseUri.Port)
+            {
+                return null;
+            }
+
             const string prefix = "/storage/v1/object/public/";
-            int idx = fileUrl.IndexOf(prefix, StringComparison.OrdinalIgnoreCase);
-            if (idx < 0) return null;
+            var path = uri.AbsolutePath;
+            if (!path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return null;
 
-            var tail = fileUrl[(idx + prefix.Length)..];
-            int qIdx = tail.IndexOfAny(['?', '#']);
-            if (qIdx >= 0) tail = tail[..qIdx];
-            tail = tail.TrimStart('/');
+            // Kiểm tra thêm chuỗi thô sau prefix để chặn payload traversal trước khi Uri chuẩn hóa
+            int rawPrefixIdx = trimmed.IndexOf(prefix, StringComparison.OrdinalIgnoreCase);
+            if (rawPrefixIdx >= 0)
+            {
+                var rawTail = trimmed[(rawPrefixIdx + prefix.Length)..];
+                int qIdx = rawTail.IndexOfAny(['?', '#']);
+                if (qIdx >= 0) rawTail = rawTail[..qIdx];
+                if (rawTail.Contains("..", StringComparison.Ordinal) ||
+                    rawTail.Contains("%2e", StringComparison.OrdinalIgnoreCase))
+                {
+                    return null;
+                }
+            }
 
+            var tail = path[prefix.Length..];
             int slashIdx = tail.IndexOf('/');
             if (slashIdx <= 0 || slashIdx >= tail.Length - 1) return null;
 
-            var bucket = tail[..slashIdx];
-            var objectPath = tail[(slashIdx + 1)..].TrimStart('/');
-            if (bucket.Length == 0 || objectPath.Length == 0) return null;
-            return (bucket, objectPath);
+            var canonicalBucket = CanonicalBucket(tail[..slashIdx]);
+            if (canonicalBucket == null) return null;
+
+            var objectPath = tail[(slashIdx + 1)..];
+            if (!IsSafeObjectPath(objectPath)) return null;
+
+            return (canonicalBucket, objectPath);
         }
 
         public string? TryExtractObjectPath(string? fileUrl)
@@ -215,24 +293,28 @@ namespace LyraSAT.Services
 
         private async Task<bool> DeleteFromBucketAsync(string bucketName, string objectPath, CancellationToken cancellationToken)
         {
+            var canonicalBucket = CanonicalBucket(bucketName);
             var normalized = (objectPath ?? string.Empty).TrimStart('/');
-            if (normalized.Length == 0) return false;
+            if (canonicalBucket == null || !IsSafeObjectPath(normalized)) return false;
 
             try
             {
+                using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                timeoutCts.CancelAfter(TimeSpan.FromSeconds(15));
+
                 using var request = new HttpRequestMessage(
                     HttpMethod.Delete,
-                    $"{_supabaseUrl}/storage/v1/object/{bucketName}/{normalized}");
+                    $"{_supabaseUrl}/storage/v1/object/{canonicalBucket}/{normalized}");
                 request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _serviceRoleKey);
                 request.Headers.Add("apikey", _serviceRoleKey);
 
-                using var response = await _httpClient.SendAsync(request, cancellationToken);
+                using var response = await _httpClient.SendAsync(request, timeoutCts.Token);
                 if (!response.IsSuccessStatusCode && response.StatusCode != HttpStatusCode.NotFound)
                 {
                     _logger.LogWarning(
                         "Supabase Storage delete returned {Status} for {Bucket}/{Path}",
                         (int)response.StatusCode,
-                        bucketName,
+                        canonicalBucket,
                         normalized);
                     return false;
                 }
@@ -240,7 +322,7 @@ namespace LyraSAT.Services
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Supabase Storage delete failed for {Bucket}/{Path}", bucketName, normalized);
+                _logger.LogWarning(ex, "Supabase Storage delete failed for {Bucket}/{Path}", canonicalBucket, normalized);
                 return false;
             }
         }

@@ -77,7 +77,8 @@ namespace LyraSAT.Controllers
         [HttpPost("test/{testId}")]
         public async Task<IActionResult> AddLinkVideo(int testId, [FromBody] CreateTestVideoDto dto)
         {
-            if (!await TestExists(testId))
+            var test = await _context.Tests.FirstOrDefaultAsync(t => t.Id == testId);
+            if (test == null)
             {
                 return NotFound(new { message = "Không tìm thấy bài test!" });
             }
@@ -99,9 +100,18 @@ namespace LyraSAT.Controllers
             };
 
             _context.TestVideos.Add(video);
+            if (string.IsNullOrWhiteSpace(test.VideoExplanationUrl))
+            {
+                test.VideoExplanationUrl = video.Url;
+            }
             await _context.SaveChangesAsync();
 
-            return Ok(new { message = "Đã thêm video chữa bài.", video = BuildResponse(video) });
+            return Ok(new
+            {
+                message = "Đã thêm video chữa bài.",
+                video = BuildResponse(video),
+                videoExplanationUrl = test.VideoExplanationUrl ?? ""
+            });
         }
 
         [HttpPost("test/{testId}/file")]
@@ -110,7 +120,8 @@ namespace LyraSAT.Controllers
         [RequestFormLimits(MultipartBodyLengthLimit = VideoLinkValidator.MaxVideoBytes + 5 * 1024 * 1024)]
         public async Task<IActionResult> AddFileVideo(int testId, IFormFile file, [FromForm] string? title)
         {
-            if (!await TestExists(testId))
+            var test = await _context.Tests.FirstOrDefaultAsync(t => t.Id == testId);
+            if (test == null)
             {
                 return NotFound(new { message = "Không tìm thấy bài test!" });
             }
@@ -121,11 +132,12 @@ namespace LyraSAT.Controllers
                 return BadRequest(new { message = fileErr });
             }
 
+            string? uploadedUrl = null;
             try
             {
                 var objectPath = $"tests/{testId}/{Guid.NewGuid():N}{ext}";
                 await using var stream = file.OpenReadStream();
-                var publicUrl = await _storage.UploadStreamAsync(
+                uploadedUrl = await _storage.UploadStreamAsync(
                     stream,
                     file.Length,
                     objectPath,
@@ -138,14 +150,23 @@ namespace LyraSAT.Controllers
                 {
                     TestId = testId,
                     Title = string.IsNullOrWhiteSpace(title) ? $"Video {count + 1}" : title!.Trim(),
-                    Url = publicUrl,
+                    Url = uploadedUrl,
                     SortOrder = await NextSortOrder(testId)
                 };
 
                 _context.TestVideos.Add(video);
+                if (string.IsNullOrWhiteSpace(test.VideoExplanationUrl))
+                {
+                    test.VideoExplanationUrl = uploadedUrl;
+                }
                 await _context.SaveChangesAsync();
 
-                return Ok(new { message = "Đã tải video lên lưu trữ đám mây và gắn vào bài test.", video = BuildResponse(video) });
+                return Ok(new
+                {
+                    message = "Đã tải video lên lưu trữ đám mây và gắn vào bài test.",
+                    video = BuildResponse(video),
+                    videoExplanationUrl = test.VideoExplanationUrl ?? ""
+                });
             }
             catch (StorageFileTooLargeException)
             {
@@ -156,13 +177,24 @@ namespace LyraSAT.Controllers
             }
             catch (Exception ex)
             {
+                if (!string.IsNullOrEmpty(uploadedUrl))
+                {
+                    try
+                    {
+                        await MediaUrlCleaner.DeleteIfUnusedAsync(_context, _storage, uploadedUrl);
+                    }
+                    catch (Exception cleanupEx)
+                    {
+                        _logger.LogWarning(cleanupEx, "Không dọn được video mồ côi {Url} sau khi lưu DB lỗi", uploadedUrl);
+                    }
+                }
                 _logger.LogError(ex, "Lỗi lưu video chữa bài cho test {TestId}", testId);
                 return StatusCode(500, new { message = "Lỗi khi lưu file video: " + ex.Message });
             }
         }
 
         [HttpPut("{videoId}")]
-        public async Task<IActionResult> UpdateVideo(int videoId, [FromBody] CreateTestVideoDto dto)
+        public async Task<IActionResult> UpdateVideo(int videoId, [FromBody] UpdateTestVideoDto? dto)
         {
             var video = await _context.TestVideos.FirstOrDefaultAsync(v => v.Id == videoId);
             if (video == null)
@@ -188,14 +220,27 @@ namespace LyraSAT.Controllers
                 video.Title = dto.Title.Trim();
             }
 
+            var test = await _context.Tests.FirstOrDefaultAsync(t => t.Id == video.TestId);
+            if (test != null &&
+                !string.Equals(oldUrl, video.Url, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(test.VideoExplanationUrl, oldUrl, StringComparison.OrdinalIgnoreCase))
+            {
+                test.VideoExplanationUrl = video.Url;
+            }
+
             await _context.SaveChangesAsync();
 
             if (!string.Equals(oldUrl, video.Url, StringComparison.OrdinalIgnoreCase))
             {
-                await _storage.DeleteByUrlAsync(oldUrl);
+                await MediaUrlCleaner.DeleteIfUnusedAsync(_context, _storage, oldUrl);
             }
 
-            return Ok(new { message = "Đã cập nhật video.", video = BuildResponse(video) });
+            return Ok(new
+            {
+                message = "Đã cập nhật video.",
+                video = BuildResponse(video),
+                videoExplanationUrl = test?.VideoExplanationUrl ?? ""
+            });
         }
 
         [HttpDelete("{videoId}")]
@@ -207,13 +252,31 @@ namespace LyraSAT.Controllers
                 return NotFound(new { message = "Không tìm thấy video!" });
             }
 
+            var testId = video.TestId;
             var oldUrl = video.Url;
             _context.TestVideos.Remove(video);
+
+            var test = await _context.Tests.FirstOrDefaultAsync(t => t.Id == testId);
+            if (test != null && string.Equals(test.VideoExplanationUrl, oldUrl, StringComparison.OrdinalIgnoreCase))
+            {
+                var nextVideo = await _context.TestVideos
+                    .AsNoTracking()
+                    .Where(v => v.TestId == testId && v.Id != videoId)
+                    .OrderBy(v => v.SortOrder)
+                    .ThenBy(v => v.Id)
+                    .FirstOrDefaultAsync();
+                test.VideoExplanationUrl = nextVideo?.Url;
+            }
+
             await _context.SaveChangesAsync();
 
-            await _storage.DeleteByUrlAsync(oldUrl);
+            await MediaUrlCleaner.DeleteIfUnusedAsync(_context, _storage, oldUrl);
 
-            return Ok(new { message = "Đã gỡ video khỏi bài test." });
+            return Ok(new
+            {
+                message = "Đã gỡ video khỏi bài test.",
+                videoExplanationUrl = test?.VideoExplanationUrl ?? ""
+            });
         }
     }
 }

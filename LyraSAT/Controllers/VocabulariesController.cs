@@ -120,6 +120,8 @@ namespace LyraSAT.Controllers
 
         // BỔ SUNG: API upload bộ từ vựng qua file Word (.docx)
         [HttpPost("upload-vocab-file")]
+        [RequestSizeLimit(55L * 1024 * 1024)]
+        [RequestFormLimits(MultipartBodyLengthLimit = 55L * 1024 * 1024)]
         public async Task<IActionResult> UploadVocabFile(
             [FromForm] string seriesName,
             [FromForm] string classCode,

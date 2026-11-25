@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Http;
 using System;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 
 namespace LyraSAT.Services
 {
@@ -13,6 +14,9 @@ namespace LyraSAT.Services
     public static class VideoLinkValidator
     {
         public const long MaxVideoBytes = 150L * 1024 * 1024;
+        private static readonly Regex SchemePrefixRegex = new(
+            @"^[A-Za-z][A-Za-z0-9+.-]*:",
+            RegexOptions.Compiled);
         private static readonly string[] DisallowedSchemePrefixes =
         {
             "javascript:", "data:", "vbscript:", "file:", "mailto:", "tel:", "ftp:"
@@ -29,15 +33,20 @@ namespace LyraSAT.Services
                 return string.Empty;
             }
 
+            if (url.StartsWith("//", StringComparison.Ordinal))
+            {
+                return "https:" + url;
+            }
+
             if (url.StartsWith("/uploads/", StringComparison.OrdinalIgnoreCase))
             {
                 return url;
             }
 
-            if (!url.Contains("://", StringComparison.Ordinal) &&
+            if (!SchemePrefixRegex.IsMatch(url) &&
                 !DisallowedSchemePrefixes.Any(prefix => url.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) &&
                 url.Contains('.', StringComparison.Ordinal) &&
-                !url.Any(char.IsWhiteSpace))
+                !url.Any(ch => char.IsWhiteSpace(ch) || char.IsControl(ch)))
             {
                 return "https://" + url;
             }
@@ -62,22 +71,28 @@ namespace LyraSAT.Services
                 return "Link video quá dài (tối đa 2048 ký tự).";
             }
 
+            if (url.Any(ch => char.IsWhiteSpace(ch) || char.IsControl(ch)))
+            {
+                return "Link video không hợp lệ (chứa khoảng trắng hoặc ký tự điều khiển).";
+            }
+
             // Giữ tương thích với đường dẫn file nội bộ cũ nếu còn trong DB
             if (url.StartsWith("/uploads/", StringComparison.OrdinalIgnoreCase))
             {
+                if (url.Contains("..", StringComparison.Ordinal) ||
+                    url.IndexOfAny(['\\', '"', '\'', '<', '>']) >= 0)
+                {
+                    return "Đường dẫn nội bộ không hợp lệ.";
+                }
                 return null;
-            }
-
-            if (url.Any(char.IsWhiteSpace))
-            {
-                return "Link video không hợp lệ (chứa khoảng trắng).";
             }
 
             if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) ||
                 (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps) ||
                 string.IsNullOrWhiteSpace(uri.Host) ||
                 (!uri.Host.Contains('.', StringComparison.Ordinal) &&
-                 !uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase)))
+                 !uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase) &&
+                 uri.HostNameType != UriHostNameType.IPv6))
             {
                 return "Link không hợp lệ. Hãy dán đúng đường dẫn bắt đầu bằng http:// hoặc https://.";
             }

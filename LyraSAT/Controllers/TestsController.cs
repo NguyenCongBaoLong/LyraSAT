@@ -199,6 +199,8 @@ namespace LyraSAT.Controllers
 
         // Giáo viên upload bài test qua file Word (.docx)
         [HttpPost("upload-test")]
+        [RequestSizeLimit(55L * 1024 * 1024)]
+        [RequestFormLimits(MultipartBodyLengthLimit = 55L * 1024 * 1024)]
         public async Task<IActionResult> UploadTest(
             [FromForm] string title,
             [FromForm] string classCode,
@@ -220,6 +222,7 @@ namespace LyraSAT.Controllers
             }
 
             Test? createdTest = null;
+            List<QuestionAsset> uploadedAssets = new();
 
             try
             {
@@ -275,7 +278,7 @@ namespace LyraSAT.Controllers
                 await _context.SaveChangesAsync();
                 createdTest = newTest;
 
-                await ExtractAndPersistQuestionAssetsAsync(questions, newTest.Id);
+                uploadedAssets = await ExtractAndPersistQuestionAssetsAsync(questions, newTest.Id);
 
                 if (!string.IsNullOrEmpty(initialVideo))
                 {
@@ -297,17 +300,52 @@ namespace LyraSAT.Controllers
             }
             catch (Exception ex)
             {
-                // Không để lại đề rác: nếu đề đã được tạo mà bước sau lỗi thì xoá luôn.
+                // Không để lại đề rác hoặc ảnh mồ côi: dọn ChangeTracker trước khi xóa DB
                 if (createdTest != null)
                 {
                     try
                     {
-                        _context.Tests.Remove(createdTest);
-                        await _context.SaveChangesAsync();
+                        _context.ChangeTracker.Clear();
+                        var stub = await _context.Tests.FindAsync(createdTest.Id);
+                        if (stub != null)
+                        {
+                            var qIds = await _context.Questions
+                                .Where(q => q.TestId == createdTest.Id)
+                                .Select(q => q.Id)
+                                .ToListAsync();
+                            if (qIds.Count > 0)
+                            {
+                                var orphanAssets = await _context.QuestionAssets
+                                    .Where(a => qIds.Contains(a.QuestionId))
+                                    .ToListAsync();
+                                if (orphanAssets.Count > 0) _context.QuestionAssets.RemoveRange(orphanAssets);
+                                var qs = await _context.Questions.Where(q => q.TestId == createdTest.Id).ToListAsync();
+                                _context.Questions.RemoveRange(qs);
+                            }
+                            var tv = await _context.TestVideos.Where(v => v.TestId == createdTest.Id).ToListAsync();
+                            if (tv.Count > 0) _context.TestVideos.RemoveRange(tv);
+                            _context.Tests.Remove(stub);
+                            await _context.SaveChangesAsync();
+                        }
                     }
                     catch (Exception cleanupEx)
                     {
                         _logger.LogError(cleanupEx, "Không xoá được đề rác {TestId} sau khi upload lỗi", createdTest.Id);
+                    }
+                }
+
+                if (uploadedAssets.Count > 0)
+                {
+                    try
+                    {
+                        await MediaUrlCleaner.DeleteManyIfUnusedAsync(
+                            _context,
+                            _storage,
+                            uploadedAssets.Select(a => a.FileUrl));
+                    }
+                    catch (Exception assetCleanupEx)
+                    {
+                        _logger.LogWarning(assetCleanupEx, "Không dọn được ảnh mồ côi sau khi upload đề lỗi");
                     }
                 }
 
@@ -357,6 +395,8 @@ namespace LyraSAT.Controllers
         /// </summary>
         [HttpPut("{id}/replace-word")]
         [Consumes("multipart/form-data")]
+        [RequestSizeLimit(55L * 1024 * 1024)]
+        [RequestFormLimits(MultipartBodyLengthLimit = 55L * 1024 * 1024)]
         public async Task<IActionResult> ReplaceTestWord(int id, IFormFile? file = null, [FromQuery] int? userId = null)
         {
             int currentUserId = userId ?? 0;
@@ -382,6 +422,10 @@ namespace LyraSAT.Controllers
             {
                 return BadRequest(new { message = "Hệ thống chỉ hỗ trợ định dạng file Word (.docx)!" });
             }
+
+            List<QuestionAsset> preparedAssets = new();
+            List<string> oldAssetUrls = new();
+            bool committed = false;
 
             try
             {
@@ -417,7 +461,7 @@ namespace LyraSAT.Controllers
                     parsedQuestions[i].Id = existingQuestionIds[i];
                 }
 
-                var preparedAssets = await PrepareUploadedQuestionAssetsAsync(parsedQuestions, id);
+                preparedAssets = await PrepareUploadedQuestionAssetsAsync(parsedQuestions, id);
 
                 var strategy = _context.Database.CreateExecutionStrategy();
                 await strategy.ExecuteAsync(async () =>
@@ -430,6 +474,11 @@ namespace LyraSAT.Controllers
                         .OrderBy(q => q.Id)
                         .ToListAsync();
 
+                    if (!existingQuestions.Select(q => q.Id).SequenceEqual(existingQuestionIds))
+                    {
+                        throw new InvalidOperationException("Danh sách câu hỏi của đề đã thay đổi trong lúc cập nhật. Vui lòng thử lại.");
+                    }
+
                     for (int i = 0; i < existingQuestions.Count; i++)
                     {
                         var target = existingQuestions[i];
@@ -441,12 +490,14 @@ namespace LyraSAT.Controllers
                         target.OptionC = source.OptionC;
                         target.OptionD = source.OptionD;
                         target.CorrectAnswer = source.CorrectAnswer;
+                        target.AcceptedAnswers = source.AcceptedAnswers;
                         target.QuestionType = source.QuestionType;
                     }
 
                     var oldAssets = await _context.QuestionAssets
                         .Where(asset => existingQuestionIds.Contains(asset.QuestionId))
                         .ToListAsync();
+                    oldAssetUrls = oldAssets.Select(a => a.FileUrl).ToList();
                     if (oldAssets.Count > 0)
                     {
                         _context.QuestionAssets.RemoveRange(oldAssets);
@@ -469,7 +520,13 @@ namespace LyraSAT.Controllers
 
                     await _context.SaveChangesAsync();
                     await transaction.CommitAsync();
+                    committed = true;
                 });
+
+                if (oldAssetUrls.Count > 0)
+                {
+                    await MediaUrlCleaner.DeleteManyIfUnusedAsync(_context, _storage, oldAssetUrls);
+                }
 
                 return Ok(new
                 {
@@ -480,6 +537,21 @@ namespace LyraSAT.Controllers
             }
             catch (Exception ex)
             {
+                if (!committed && preparedAssets.Count > 0)
+                {
+                    try
+                    {
+                        await MediaUrlCleaner.DeleteManyIfUnusedAsync(
+                            _context,
+                            _storage,
+                            preparedAssets.Select(a => a.FileUrl));
+                    }
+                    catch (Exception cleanupEx)
+                    {
+                        _logger.LogWarning(cleanupEx, "Không dọn được ảnh mới mồ côi khi ReplaceTestWord lỗi ở test {TestId}", id);
+                    }
+                }
+
                 var innerMsg = ex.InnerException != null ? " -> " + ex.InnerException.Message : "";
                 return StatusCode(500, new { message = "Lỗi khi cập nhật file Word: " + ex.Message + innerMsg });
             }
@@ -515,7 +587,7 @@ namespace LyraSAT.Controllers
 
             if (!string.Equals(oldUrl, test.VideoExplanationUrl, StringComparison.OrdinalIgnoreCase))
             {
-                await _storage.DeleteByUrlAsync(oldUrl);
+                await MediaUrlCleaner.DeleteIfUnusedAsync(_context, _storage, oldUrl);
             }
 
             return Ok(new
@@ -547,11 +619,12 @@ namespace LyraSAT.Controllers
                 return BadRequest(new { message = fileErr });
             }
 
+            string? uploadedUrl = null;
             try
             {
                 var objectPath = $"tests/{id}/{Guid.NewGuid():N}{ext}";
                 await using var stream = file.OpenReadStream();
-                var url = await _storage.UploadStreamAsync(
+                uploadedUrl = await _storage.UploadStreamAsync(
                     stream,
                     file.Length,
                     objectPath,
@@ -560,15 +633,15 @@ namespace LyraSAT.Controllers
                     HttpContext.RequestAborted);
 
                 var oldUrl = test.VideoExplanationUrl;
-                test.VideoExplanationUrl = url;
+                test.VideoExplanationUrl = uploadedUrl;
                 await _context.SaveChangesAsync();
 
-                if (!string.Equals(oldUrl, url, StringComparison.OrdinalIgnoreCase))
+                if (!string.Equals(oldUrl, uploadedUrl, StringComparison.OrdinalIgnoreCase))
                 {
-                    await _storage.DeleteByUrlAsync(oldUrl);
+                    await MediaUrlCleaner.DeleteIfUnusedAsync(_context, _storage, oldUrl);
                 }
 
-                return Ok(new { message = "Đã tải video lên lưu trữ đám mây và gắn vào bài test.", videoExplanationUrl = url });
+                return Ok(new { message = "Đã tải video lên lưu trữ đám mây và gắn vào bài test.", videoExplanationUrl = uploadedUrl });
             }
             catch (StorageFileTooLargeException)
             {
@@ -579,6 +652,17 @@ namespace LyraSAT.Controllers
             }
             catch (Exception ex)
             {
+                if (!string.IsNullOrEmpty(uploadedUrl))
+                {
+                    try
+                    {
+                        await MediaUrlCleaner.DeleteIfUnusedAsync(_context, _storage, uploadedUrl);
+                    }
+                    catch (Exception cleanupEx)
+                    {
+                        _logger.LogWarning(cleanupEx, "Không dọn được video mồ côi {Url} cho test {TestId}", uploadedUrl, id);
+                    }
+                }
                 _logger.LogError(ex, "Lỗi lưu video chữa bài cho test {TestId}", id);
                 return StatusCode(500, new { message = "Lỗi khi lưu file video: " + ex.Message });
             }
@@ -864,7 +948,8 @@ namespace LyraSAT.Controllers
                             "image/svg+xml" => "svg",
                             _ => mimeType[6..]
                         };
-                        var fileName = $"question-{question.Id}-{field.Placement.ToLowerInvariant()}-{fieldAssetIndex++}.{extension}";
+                        var shortId = Guid.NewGuid().ToString("N")[..8];
+                        var fileName = $"question-{question.Id}-{field.Placement.ToLowerInvariant()}-{fieldAssetIndex++}-{shortId}.{extension}";
                         var bytes = Convert.FromBase64String(match.Groups["data"].Value);
                         var objectPath = $"tests/{testId}/{fileName}";
                         uploads.Add((bytes, objectPath, mimeType, fileName, field.Placement, question.Id, assetIndex++));
@@ -933,13 +1018,14 @@ namespace LyraSAT.Controllers
             return preparedAssets;
         }
 
-        private async Task ExtractAndPersistQuestionAssetsAsync(IEnumerable<Question> questions, int testId)
+        private async Task<List<QuestionAsset>> ExtractAndPersistQuestionAssetsAsync(IEnumerable<Question> questions, int testId)
         {
             var preparedAssets = await PrepareUploadedQuestionAssetsAsync(questions, testId);
-            if (preparedAssets.Count == 0) return;
+            if (preparedAssets.Count == 0) return preparedAssets;
 
             _context.QuestionAssets.AddRange(preparedAssets);
             await _context.SaveChangesAsync();
+            return preparedAssets;
         }
 
         // Xóa bài test (Dành cho Giáo viên & Quản trị viên)
@@ -979,9 +1065,15 @@ namespace LyraSAT.Controllers
                     .Where(asset => initialQuestionIds.Contains(asset.QuestionId))
                     .Select(a => a.FileUrl)
                     .ToListAsync();
+                var commentAttachmentUrls = await _context.QuestionComments
+                    .AsNoTracking()
+                    .Where(c => initialQuestionIds.Contains(c.QuestionId) && c.AttachmentUrl != null)
+                    .Select(c => c.AttachmentUrl!)
+                    .ToListAsync();
                 var remoteUrls = questionAssetUrls
                     .Concat(testVideoUrls)
                     .Concat(questionVideoUrls)
+                    .Concat(commentAttachmentUrls)
                     .Append(testVideoUrl)
                     .Where(url => _storage.TryExtractBucketAndPath(url) != null)
                     .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -1002,6 +1094,9 @@ namespace LyraSAT.Controllers
                     var submissionIds = submissions.Select(s => s.Id).ToList();
                     var assets = await _context.QuestionAssets
                         .Where(asset => questionIds.Contains(asset.QuestionId))
+                        .ToListAsync();
+                    var testVideos = await _context.TestVideos
+                        .Where(v => v.TestId == id)
                         .ToListAsync();
 
                     var subDetails = await _context.SubmissionDetails
@@ -1046,6 +1141,10 @@ namespace LyraSAT.Controllers
                     {
                         _context.QuestionAssets.RemoveRange(assets);
                     }
+                    if (testVideos.Any())
+                    {
+                        _context.TestVideos.RemoveRange(testVideos);
+                    }
 
                     // Dọn thông báo trỏ tới đề/câu hỏi sắp xóa (tránh chuông còn thông báo "mồ côi")
                     var relatedNotifications = await _context.Notifications
@@ -1063,12 +1162,19 @@ namespace LyraSAT.Controllers
 
                 if (remoteUrls.Count > 0)
                 {
-                    await Task.WhenAll(remoteUrls.Select(u => _storage.DeleteByUrlAsync(u)));
+                    await MediaUrlCleaner.DeleteManyIfUnusedAsync(_context, _storage, remoteUrls, maxConcurrency: 5);
                 }
 
                 if (Directory.Exists(assetRoot))
                 {
-                    Directory.Delete(assetRoot, recursive: true);
+                    try
+                    {
+                        Directory.Delete(assetRoot, recursive: true);
+                    }
+                    catch (Exception dirEx)
+                    {
+                        _logger.LogWarning(dirEx, "Không xóa được thư mục tạm {AssetRoot} của test {TestId}", assetRoot, id);
+                    }
                 }
 
                 return Ok(new { message = "Đã xóa bài test thành công!" });

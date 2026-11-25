@@ -1,6 +1,7 @@
 ﻿using LyraSAT.Data;
 using LyraSAT.DTOs;
 using LyraSAT.Models;
+using LyraSAT.Services;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -20,11 +21,13 @@ namespace LyraSAT.Controllers
     public partial class AdminController : ControllerBase
     {
         private readonly LyraSatDbContext _context;
+        private readonly ISupabaseStorageService _storage;
         private readonly PasswordHasher<User> _passwordHasher = new PasswordHasher<User>(); // Khởi tạo công cụ băm mật khẩu
 
-        public AdminController(LyraSatDbContext context)
+        public AdminController(LyraSatDbContext context, ISupabaseStorageService storage)
         {
             _context = context;
+            _storage = storage;
         }
     }
 }

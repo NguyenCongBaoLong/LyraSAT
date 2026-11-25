@@ -51,7 +51,7 @@ namespace LyraSAT.Controllers
             {
                 question.VideoExplanationUrl = null;
                 await _context.SaveChangesAsync();
-                await _storage.DeleteByUrlAsync(oldUrl);
+                await MediaUrlCleaner.DeleteIfUnusedAsync(_context, _storage, oldUrl);
                 return Ok(new { message = "Đã gỡ video của câu hỏi.", videoExplanationUrl = "" });
             }
 
@@ -66,7 +66,7 @@ namespace LyraSAT.Controllers
 
             if (!string.Equals(oldUrl, url, StringComparison.OrdinalIgnoreCase))
             {
-                await _storage.DeleteByUrlAsync(oldUrl);
+                await MediaUrlCleaner.DeleteIfUnusedAsync(_context, _storage, oldUrl);
             }
 
             return Ok(new { message = "Đã gắn video cho câu hỏi.", videoExplanationUrl = url });
@@ -93,11 +93,12 @@ namespace LyraSAT.Controllers
                 return BadRequest(new { message = fileErr });
             }
 
+            string? uploadedUrl = null;
             try
             {
                 var objectPath = $"questions/{questionId}/{Guid.NewGuid():N}{ext}";
                 await using var stream = file.OpenReadStream();
-                var publicUrl = await _storage.UploadStreamAsync(
+                uploadedUrl = await _storage.UploadStreamAsync(
                     stream,
                     file.Length,
                     objectPath,
@@ -106,15 +107,15 @@ namespace LyraSAT.Controllers
                     HttpContext.RequestAborted);
 
                 var oldUrl = question.VideoExplanationUrl;
-                question.VideoExplanationUrl = publicUrl;
+                question.VideoExplanationUrl = uploadedUrl;
                 await _context.SaveChangesAsync();
 
-                if (!string.Equals(oldUrl, publicUrl, StringComparison.OrdinalIgnoreCase))
+                if (!string.Equals(oldUrl, uploadedUrl, StringComparison.OrdinalIgnoreCase))
                 {
-                    await _storage.DeleteByUrlAsync(oldUrl);
+                    await MediaUrlCleaner.DeleteIfUnusedAsync(_context, _storage, oldUrl);
                 }
 
-                return Ok(new { message = "Đã tải video lên lưu trữ đám mây và gắn cho câu hỏi.", videoExplanationUrl = publicUrl });
+                return Ok(new { message = "Đã tải video lên lưu trữ đám mây và gắn cho câu hỏi.", videoExplanationUrl = uploadedUrl });
             }
             catch (StorageFileTooLargeException)
             {
@@ -125,6 +126,17 @@ namespace LyraSAT.Controllers
             }
             catch (Exception ex)
             {
+                if (!string.IsNullOrEmpty(uploadedUrl))
+                {
+                    try
+                    {
+                        await MediaUrlCleaner.DeleteIfUnusedAsync(_context, _storage, uploadedUrl);
+                    }
+                    catch (Exception cleanupEx)
+                    {
+                        _logger.LogWarning(cleanupEx, "Không dọn được video câu hỏi mồ côi {Url}", uploadedUrl);
+                    }
+                }
                 _logger.LogError(ex, "Lỗi lưu video cho câu hỏi {QuestionId}", questionId);
                 return StatusCode(500, new { message = "Lỗi khi lưu file video: " + ex.Message });
             }

@@ -712,7 +712,7 @@ namespace LyraSAT.Services
                             .Where(e => e.Name.LocalName == "e")
                             .Select(e => MathLatex(e).Trim());
                         content.Append("\\left").Append(EscapeDelimiter(begin))
-                            .Append(string.Join(sep, elements))
+                            .Append(string.Join(EscapeLatex(sep), elements))
                             .Append("\\right").Append(EscapeDelimiter(end));
                         break;
                     }
@@ -1745,7 +1745,12 @@ namespace LyraSAT.Services
                 // Chỉ coi cả dòng là LaTeX gõ tay nếu không có chữ câu văn đi kèm (trừ \text{...}).
                 if (LatexCommandRegex.IsMatch(candidate) && IsPureManualLatex(candidate))
                 {
-                    return $"<span class='math-inline'>{WebUtility.HtmlEncode(candidate)}</span>";
+                    var normalizedLatex = candidate
+                        .Replace('∣', '|')
+                        .Replace('｜', '|')
+                        .Replace("‖", "\\| ")
+                        .Replace("∥", "\\| ");
+                    return $"<span class='math-inline'>{WebUtility.HtmlEncode(normalizedLatex)}</span>";
                 }
 
                 if (IsPlainMathText(candidate))
